@@ -1,0 +1,29 @@
+{
+  "name": "DaemonLink Console",
+  "short_name": "DaemonLink",
+  "description": "Tactical headless pentesting console — Web Serial bridge to ESP32-S3.",
+  "id": "/",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#080a08",
+  "theme_color": "#080a08",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["utilities", "developer", "security"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "maskable"
+    }
+  ]
+}

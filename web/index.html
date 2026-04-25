@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#080a08" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="DaemonLink" />
+
+  <!-- PWA manifest: turns the page into an installable, offline-capable app. -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="icon.svg" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+
   <title>DaemonLink :: Console</title>
   <style>
     /* ====================================================================
@@ -569,6 +578,34 @@
     el.connectBtn.disabled = true;
   } else {
     logMeta("Web Serial API ready. Tap Connect, pick the ESP32-S3 port.");
+  }
+
+  // ---------- PWA: register the Service Worker ------------------------
+  // Runs only on secure contexts (https / localhost). We register on the
+  // window 'load' event so it does not race the initial paint, and we
+  // listen for `updatefound` so a new shell version doesn't surprise the
+  // user mid-session.
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker
+        .register("sw.js", { scope: "./" })
+        .then((reg) => {
+          logMeta(`service worker active (scope ${reg.scope})`);
+          reg.addEventListener("updatefound", () => {
+            const installing = reg.installing;
+            if (!installing) return;
+            installing.addEventListener("statechange", () => {
+              if (
+                installing.state === "installed" &&
+                navigator.serviceWorker.controller
+              ) {
+                logMeta("update available — reload to apply");
+              }
+            });
+          });
+        })
+        .catch((err) => logError(`SW registration failed: ${err.message}`));
+    });
   }
   </script>
 </body>

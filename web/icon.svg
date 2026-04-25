@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DaemonLink">
+  <rect width="512" height="512" rx="96" fill="#080a08"/>
+  <rect x="32" y="32" width="448" height="448" rx="64" fill="none" stroke="#1f2724" stroke-width="4"/>
+  <g fill="#57ff8c" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-weight="700">
+    <text x="84" y="278" font-size="200" letter-spacing="-8">DL</text>
+    <rect x="312" y="232" width="20" height="60"/>
+  </g>
+  <g fill="none" stroke="#57ff8c" stroke-width="6" stroke-linecap="round">
+    <path d="M88 360 h140"/>
+    <path d="M248 360 h36" stroke="#2bb35a"/>
+    <path d="M304 360 h120" stroke="#1f2724"/>
+  </g>
+  <g fill="#6f8a6f" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="32" font-weight="500" letter-spacing="4">
+    <text x="88" y="420">DAEMONLINK</text>
+  </g>
+</svg>

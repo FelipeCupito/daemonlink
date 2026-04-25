@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DaemonLink">
+  <!-- Maskable icon: full-bleed background, content kept inside the
+       80%-radius safe zone (Android may crop to circle/squircle/etc). -->
+  <rect width="512" height="512" fill="#080a08"/>
+  <g fill="#57ff8c" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-weight="700">
+    <text x="128" y="306" font-size="200" letter-spacing="-8">DL</text>
+    <rect x="356" y="260" width="20" height="60"/>
+  </g>
+</svg>
