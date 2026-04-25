@@ -30,8 +30,15 @@ jobs:
       - name: Checkout repo (with submodule)
         uses: actions/checkout@v4
         with:
-          submodules: recursive
-          # Pinned commit in .gitmodules → reproducible builds.
+          # `true` clones our Marauder submodule but NOT its nested ones.
+          # Marauder pins old versions of NimBLE-Arduino, TFT_eSPI, etc.
+          # under esp32_marauder/libraries/ as its own submodules; if we
+          # let actions/checkout pull those recursively, lib_extra_dirs
+          # would prefer them over the modern versions we pin in
+          # platformio.ini -> lib_deps, breaking the NimBLE 2.x build.
+          # Locally we never ran a recursive submodule init either, so
+          # this matches our dev environment.
+          submodules: true
           fetch-depth: 1
 
       - name: Setup Python
