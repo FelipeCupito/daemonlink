@@ -13,39 +13,66 @@
         "//": "Service worker must always be revalidated. Caching it on the CDN traps users on a stale shell.",
         "source": "/sw.js",
         "headers": [
-          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
-          { "key": "Service-Worker-Allowed", "value": "/" }
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          },
+          {
+            "key": "Service-Worker-Allowed",
+            "value": "/"
+          }
         ]
       },
       {
         "//": "Manifest changes infrequently but should still revalidate so install prompts pick up new icons.",
         "source": "/manifest.json",
         "headers": [
-          { "key": "Cache-Control", "value": "public, max-age=300, must-revalidate" },
-          { "key": "Content-Type",  "value": "application/manifest+json; charset=utf-8" }
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=300, must-revalidate"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/manifest+json; charset=utf-8"
+          }
         ]
       },
       {
         "//": "index.html: same policy as the SW — always check for a fresh shell.",
         "source": "/index.html",
         "headers": [
-          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
         ]
       },
       {
         "//": "Vector icons are content-hashed in source (we never change file names), so cache them aggressively.",
         "source": "**/*.svg",
         "headers": [
-          { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
         ]
       },
       {
         "//": "Hardening for the PWA shell.",
         "source": "**",
         "headers": [
-          { "key": "X-Content-Type-Options", "value": "nosniff" },
-          { "key": "Referrer-Policy",        "value": "strict-origin-when-cross-origin" },
-          { "key": "Permissions-Policy",     "value": "serial=(self)" }
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          },
+          {
+            "key": "Referrer-Policy",
+            "value": "strict-origin-when-cross-origin"
+          },
+          {
+            "key": "Permissions-Policy",
+            "value": "serial=(self)"
+          }
         ]
       }
     ]
