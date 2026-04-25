@@ -1,0 +1,4 @@
+[submodule "external/ESP32Marauder"]
+	path = external/ESP32Marauder
+	url = https://github.com/justcallmekoko/ESP32Marauder.git
+	branch = master

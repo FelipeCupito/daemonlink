@@ -21,19 +21,33 @@ As the primary developer (AI), adhere strictly to these rules:
 | IR emitter | LED | Digital (PWM) | `GPIO 5` |
 | *(future)* RF | CC1101 / NRF24L01 | SPI | `SCK = 12`, `MISO = 13`, `MOSI = 11` |
 
-## 4. Backend Structure & Current State
-The firmware core is a fork of **ESP32 Marauder**, built with PlatformIO.
+## 4. Repository Layout
+```
+DaemonLink/
+├── platformio.ini                            # build config + extra_scripts hook
+├── lib/DaemonLink/                           # our modules (auto-discovered by PIO)
+│   ├── DaemonLink_NFC.{h,cpp}                # PN532 driver wrapper (non-blocking)
+│   └── DaemonLink_CLI.{h,cpp}                # CLI shim injected into Marauder
+├── external/ESP32Marauder/                   # git submodule -> upstream Marauder
+│   └── esp32_marauder/                       # the actual sketch (src_dir)
+├── patches/marauder.patch                    # 4-line injection (idempotent)
+├── scripts/apply_patches.py                  # PIO pre-script + standalone CLI
+└── web/                                      # PWA frontend (Phase B, pending)
+```
+- PlatformIO compiles `external/ESP32Marauder/esp32_marauder/` as the main sketch (`src_dir`). Our `lib/DaemonLink/` is auto-linked because PlatformIO scans `lib/`.
+- `scripts/apply_patches.py` runs as `extra_scripts = pre:` on every `pio run`. It is idempotent: detects an already-patched submodule via `git apply --reverse --check` and skips.
 
-**Already implemented — do not rewrite:**
-- `platformio.ini` — `esp32-s3-devkitc-1`, flags `-DHEADLESS_MODE=1`, `-DNO_DISPLAY=1`, native USB CDC enabled.
-- `src/DaemonLink_NFC.cpp` / `.h` — isolated class that initializes the I²C bus and the PN532, with a non-blocking `readMifareUID()` function.
+## 5. Current State (Phase A — DONE)
+- `platformio.ini` — board `esp32-s3-devkitc-1`, native USB CDC enabled, `extra_scripts` wired.
+- `lib/DaemonLink/DaemonLink_NFC.{h,cpp}` — PN532 over I²C (SDA=8, SCL=9), `readMifareUID()`.
+- `lib/DaemonLink/DaemonLink_CLI.{h,cpp}` — shim with `DaemonLink_initCli()` + `DaemonLink_handleCli()`. Spawns the NFC read on a pinned FreeRTOS task (core 1, prio 1, 4 KB stack), single-flight via volatile busy flag.
+- `patches/marauder.patch` — adds 4 lines across `CommandLine.h`, `CommandLine.cpp`, `esp32_marauder.ino`. No existing line is modified — keeps future upstream merges trivial.
+- Marauder vendored at `external/ESP32Marauder` (submodule, master).
 
-## 5. Next Steps (work to perform on user request)
+### Known gap before first build
+Marauder's `configs.h` currently has no `HEADLESS_MODE` flag — board target must be picked from the existing list (`XIAO_ESP32_S3` is the closest match for our DevKitC-1). This is a separate task from Phase A; the injection is correct regardless.
 
-### Phase A — CLI Injection (C++)
-Intercept Marauder's command parser (typically `CommandLine.cpp`).
-- **Goal:** inject custom commands (`nfc_read`, `ir_capture`, …) into Marauder's command table.
-- **Constraint:** the injection must be as clean as possible to allow a future merge if upstream Marauder updates. Calls to our modules (e.g. `DaemonLink_NFC`) happen here and stream their output to the Serial terminal.
+## 6. Next Steps
 
 ### Phase B — PWA Frontend (HTML/JS)
 Build `web/index.html`.
