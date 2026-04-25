@@ -55,10 +55,21 @@ public:
 
     bool isReady() const { return _ready; }
 
+    // --- last-capture cache (Phase G) ------------------------------------
+    // Despues de un `capture()` exitoso, dejamos en RAM el "replay" payload
+    // (el mismo que emitimos por JSON) para que `ir_save` pueda persistirlo
+    // sin pedirle al usuario que lo copie y pegue.
+    bool   hasLastCapture()      const { return _lastCapture.length() > 0; }
+    const String& lastReplay()   const { return _lastCapture; }
+    uint32_t lastCaptureMs()     const { return _lastCaptureMs; }
+
 private:
     IRrecv  _recv;
     IRsend  _emit;
     bool    _ready;
+
+    String   _lastCapture;     // payload formato "PROTO bits 0xHEX" o "raw 38 us,..."
+    uint32_t _lastCaptureMs;   // millis() del momento del capture
 
     bool sendProtocolFromString(const String& proto, const String& rest);
     bool sendRawFromString(const String& rest);

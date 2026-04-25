@@ -16,6 +16,9 @@
 //    - ir_send <payload>     -> transmision IR. Acepta:
 //                                 "<PROTO> <bits> <hex>"
 //                                 "raw <khz> <us,us,...>"
+//    - ir_save <name>        -> guarda el ultimo capture en /ir/<name>.json (LittleFS).
+//    - ir_play <name>        -> carga /ir/<name>.json y lo transmite.
+//    - fs_list               -> lista la libreria IR como JSON.
 //    - dl_help               -> lista comandos DaemonLink.
 // ============================================================================
 #pragma once

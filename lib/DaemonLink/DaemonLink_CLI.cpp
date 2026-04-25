@@ -7,6 +7,7 @@
 #include "DaemonLink_CLI.h"
 #include "DaemonLink_NFC.h"
 #include "DaemonLink_IR.h"
+#include "DaemonLink_FS.h"
 #include "DaemonLink_Json.h"
 
 #include <freertos/FreeRTOS.h>
@@ -19,11 +20,13 @@ namespace {
 // que Wire/Serial/RMT ya esten inicializados.
 DaemonLink_NFC g_nfc;
 DaemonLink_IR  g_ir;
+DaemonLink_FS  g_fs;
 
 bool          g_nfc_ok   = false;   // PN532 respondio al firmware probe
 bool          g_ir_ok    = false;   // receptor IR habilitado
+bool          g_fs_ok    = false;   // LittleFS montada
 volatile bool g_nfc_busy = false;   // hay una lectura NFC en curso
-volatile bool g_ir_busy  = false;   // hay una captura IR en curso
+volatile bool g_ir_busy  = false;   // hay una captura/tx IR en curso
 
 // --- Tareas worker --------------------------------------------------------
 // Ejecutan operaciones que pueden tardar varios segundos sin congelar el
@@ -51,6 +54,25 @@ void irSendTask(void* arg) {
     vTaskDelete(nullptr);
 }
 
+// Worker para `ir_play <name>`: hace I/O sobre LittleFS + transmision.
+// Compartimos g_ir_busy con capture/send para serializar el bus IR.
+void irPlayTask(void* arg) {
+    String* name = static_cast<String*>(arg);
+    String payload = g_fs.loadIRPayload(*name);
+    if (payload.length() > 0) {
+        // Eco previo: la PWA puede correlacionar el play con el send.
+        JsonDocument d;
+        d["source"] = "ir";
+        d["event"]  = "play";
+        d["name"]   = name->c_str();
+        DaemonLink::emitJson(d);
+        g_ir.send(payload);
+    }
+    delete name;
+    g_ir_busy = false;
+    vTaskDelete(nullptr);
+}
+
 void printDlHelp() {
     JsonDocument d;
     d["source"] = "sys";
@@ -65,6 +87,9 @@ void printDlHelp() {
     add("nfc_read",   "read Mifare UID via PN532 (async)");
     add("ir_capture", "capture & decode IR remote (async)");
     add("ir_send",    "transmit IR: '<PROTO> <bits> <hex>' or 'raw <khz> <us,...>'");
+    add("ir_save",    "ir_save <name> — persist last capture to LittleFS");
+    add("ir_play",    "ir_play <name> — load saved payload from LittleFS and transmit");
+    add("fs_list",    "list saved IR payloads as JSON");
     add("dl_help",    "show this list");
 
     d["note"] = "Marauder native commands keep working (help, scanall, ...)";
@@ -88,6 +113,12 @@ void DaemonLink_initCli() {
     g_ir_ok = g_ir.begin();
     if (!g_ir_ok) {
         DaemonLink::emitError("sys", "IR init failed, ir_capture/ir_send disabled");
+    }
+
+    // --- LittleFS ---
+    g_fs_ok = g_fs.begin();
+    if (!g_fs_ok) {
+        DaemonLink::emitError("sys", "FS init failed, ir_save/ir_play/fs_list disabled");
     }
 }
 
@@ -188,6 +219,75 @@ bool DaemonLink_handleCli(const String& input) {
         } else {
             DaemonLink::emitInfo("ir", "dispatch ok (send)");
         }
+        return true;
+    }
+
+    // ----- ir_save <name> ----------------------------------------------
+    // Sincronico: escribir LittleFS toma <50 ms y no bloquea RF.
+    if (input.startsWith("ir_save ") || input == "ir_save") {
+        if (!g_fs_ok) { DaemonLink::emitError("fs", "module not initialized"); return true; }
+        if (!g_ir_ok) { DaemonLink::emitError("ir", "module not initialized"); return true; }
+
+        String name = input.length() > 8 ? input.substring(8) : "";
+        name.trim();
+        if (name.length() == 0) {
+            DaemonLink::emitError("fs", "ir_save requires a <name>");
+            return true;
+        }
+        if (!g_ir.hasLastCapture()) {
+            DaemonLink::emitError("ir", "no capture in RAM — run ir_capture first");
+            return true;
+        }
+
+        g_fs.saveIRPayload(name, g_ir.lastReplay());
+        return true;
+    }
+
+    // ----- ir_play <name> ----------------------------------------------
+    if (input.startsWith("ir_play ") || input == "ir_play") {
+        if (!g_fs_ok) { DaemonLink::emitError("fs", "module not initialized"); return true; }
+        if (!g_ir_ok) { DaemonLink::emitError("ir", "module not initialized"); return true; }
+        if (g_ir_busy) {
+            DaemonLink::emitError("ir", "BUSY — another IR op is in progress");
+            return true;
+        }
+
+        String raw = input.length() > 8 ? input.substring(8) : "";
+        raw.trim();
+        if (raw.length() == 0) {
+            DaemonLink::emitError("fs", "ir_play requires a <name>");
+            return true;
+        }
+
+        String* name = new String(raw);
+        g_ir_busy = true;
+        BaseType_t r = xTaskCreatePinnedToCore(
+            irPlayTask, "dl_ir_play", 6144, name, 1, nullptr, 1
+        );
+        if (r != pdPASS) {
+            delete name;
+            g_ir_busy = false;
+            DaemonLink::emitError("ir", "failed to spawn task");
+        } else {
+            DaemonLink::emitInfo("ir", "dispatch ok (play)");
+        }
+        return true;
+    }
+
+    // ----- fs_list ------------------------------------------------------
+    if (input == "fs_list") {
+        if (!g_fs_ok) { DaemonLink::emitError("fs", "module not initialized"); return true; }
+
+        JsonDocument d;
+        d["source"] = "fs";
+        d["event"]  = "list";
+        d["path"]   = "/ir";
+        d["total"]  = (uint32_t)g_fs.totalBytes();
+        d["used"]   = (uint32_t)g_fs.usedBytes();
+        JsonArray items = d["items"].to<JsonArray>();
+        size_t n = g_fs.listIR(items);
+        d["count"] = (uint32_t)n;
+        DaemonLink::emitJson(d);
         return true;
     }
 

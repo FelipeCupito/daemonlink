@@ -17,7 +17,9 @@ DaemonLink_IR::DaemonLink_IR()
             DAEMONLINK_IR_TIMEOUT_MS,
             /*save_buffer=*/true),
       _emit(DAEMONLINK_IR_TX_PIN),
-      _ready(false) {}
+      _ready(false),
+      _lastCapture(""),
+      _lastCaptureMs(0) {}
 
 bool DaemonLink_IR::begin() {
     if (_ready) return true;
@@ -73,20 +75,24 @@ bool DaemonLink_IR::capture(uint32_t timeout_ms) {
             // "replay" — payload listo para alimentar ir_send sin reformatear.
             // Para protocolos conocidos: "PROTO bits 0xHEX".
             // Para UNKNOWN: "raw 38 us,us,us,..." (38 kHz estandar consumer).
+            String rep;
             if (!isUnknown) {
-                String rep = proto + " " + String(results.bits) + " 0x" +
-                             uint64ToString(results.value, 16);
-                d["replay"] = rep.c_str();
+                rep = proto + " " + String(results.bits) + " 0x" +
+                      uint64ToString(results.value, 16);
             } else {
                 // rawbuf[0] es el gap inicial; empezamos en 1.
-                String rep = "raw 38 ";
+                rep = "raw 38 ";
                 for (uint16_t i = 1; i < results.rawlen; ++i) {
                     rep += String(results.rawbuf[i] * kRawTick);
                     if (i < results.rawlen - 1) rep += ',';
                 }
-                d["replay"] = rep.c_str();
                 d["raw_len"] = results.rawlen - 1;
             }
+            d["replay"] = rep.c_str();
+
+            // Cache en RAM para `ir_save`. Sobrescribe el anterior.
+            _lastCapture   = rep;
+            _lastCaptureMs = millis();
 
             DaemonLink::emitJson(d);
             _recv.resume();

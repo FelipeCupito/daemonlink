@@ -336,6 +336,61 @@
       letter-spacing: 0.04em;
     }
 
+    /* -------- Library panel (Phase G) ------------------------------- */
+    .library {
+      flex: 0 0 auto;
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.25s ease;
+      background: var(--bg-2);
+      border-top: 1px solid var(--border);
+    }
+    .library.open { max-height: 50vh; overflow-y: auto; }
+    .library-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+      border-bottom: 1px dashed var(--border);
+    }
+    .library-head .meta { flex: 1 1 auto; text-align: right; font-size: 10px; }
+    .library-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 6px 8px 10px;
+    }
+    .lib-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      background: var(--bg-3);
+      border-left: 2px solid var(--ir);
+      border-radius: 3px;
+      font-size: 12px;
+    }
+    .lib-item .lib-name { flex: 1 1 auto; color: var(--fg); word-break: break-all; }
+    .lib-item .lib-size { color: var(--fg-dim); font-size: 10.5px; min-width: 50px; text-align: right; }
+    .lib-item .play {
+      flex: 0 0 auto;
+      min-height: 28px;
+      padding: 2px 10px;
+      font-size: 11px;
+      color: var(--ir);
+      border-color: var(--ir);
+    }
+    .lib-empty {
+      padding: 12px;
+      color: var(--fg-dim);
+      text-align: center;
+      font-size: 11.5px;
+    }
+
     /* -------- IR send strip (Phase D) ------------------------------- */
     .ir-bar {
       flex: 0 0 auto;
@@ -385,6 +440,36 @@
       background: rgba(255, 216, 74, 0.08);
     }
 
+    /* Inline save row inside the IR strip */
+    .ir-save-row {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 6px;
+      padding: 0 12px 6px;
+      background: var(--bg-2);
+    }
+    #irSaveName {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 30px;
+      padding: 0 8px;
+      font-family: inherit;
+      font-size: 12px;
+      color: var(--fg);
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      outline: none;
+    }
+    #irSaveName:focus { border-color: var(--ir); }
+    #irSaveName::placeholder { color: var(--fg-dim); }
+    #irSaveBtn, #libToggleBtn {
+      flex: 0 0 auto;
+      min-height: 30px;
+      padding: 2px 10px;
+      font-size: 11px;
+    }
+
     /* -------- responsive tweaks -------------------------------------- */
     @media (max-width: 380px) {
       header           { padding: 8px 10px; gap: 6px; }
@@ -411,12 +496,32 @@
   <main>
     <div id="console" role="log" aria-live="polite" aria-label="Serial output"></div>
 
+    <section class="library" id="library" aria-label="Saved IR payloads">
+      <div class="library-head">
+        <span>Library · /ir</span>
+        <span class="meta" id="libraryMeta"></span>
+        <button id="libRefreshBtn" class="btn" type="button" disabled>Refresh</button>
+      </div>
+      <div class="library-list" id="libraryList">
+        <div class="lib-empty">no entries — capture an IR signal and tap Save</div>
+      </div>
+    </section>
+
     <form class="ir-bar" id="irForm" autocomplete="off">
       <span class="ir-label" aria-hidden="true">IR ▶</span>
       <input id="irPayload" type="text"
              placeholder="paste replay payload, e.g. NEC 32 0x00FF629D  or  raw 38 9000,4500,…"
              autocapitalize="none" autocorrect="off" spellcheck="false" disabled />
       <button id="irSendBtn" class="btn" type="submit" disabled>Transmit IR</button>
+    </form>
+
+    <form class="ir-save-row" id="irSaveForm" autocomplete="off">
+      <input id="irSaveName" type="text"
+             placeholder="name for last capture (A-Z 0-9 _ -)"
+             pattern="[A-Za-z0-9_\-]{1,32}" maxlength="32"
+             autocapitalize="none" autocorrect="off" spellcheck="false" disabled />
+      <button id="irSaveBtn"   class="btn" type="submit" disabled>Save</button>
+      <button id="libToggleBtn" class="btn" type="button" disabled>Library</button>
     </form>
 
     <div class="quick-bar" id="quickBar">
@@ -454,6 +559,14 @@
     irForm:      document.getElementById("irForm"),
     irPayload:   document.getElementById("irPayload"),
     irSendBtn:   document.getElementById("irSendBtn"),
+    irSaveForm:  document.getElementById("irSaveForm"),
+    irSaveName:  document.getElementById("irSaveName"),
+    irSaveBtn:   document.getElementById("irSaveBtn"),
+    libToggleBtn:document.getElementById("libToggleBtn"),
+    libRefreshBtn: document.getElementById("libRefreshBtn"),
+    library:     document.getElementById("library"),
+    libraryList: document.getElementById("libraryList"),
+    libraryMeta: document.getElementById("libraryMeta"),
   };
 
   // ---------- State machine -------------------------------------------
@@ -631,6 +744,8 @@
       try {
         const obj = JSON.parse(line);
         if (obj && typeof obj === "object" && typeof obj.source === "string") {
+          // Side effect: keep the library panel in sync with FS events.
+          interceptForLibrary(obj);
           renderJsonEvent(obj);
           return;
         }
@@ -641,6 +756,62 @@
     appendLine(line, classify(line));
   }
 
+  // ---------- Library panel (Phase G) ---------------------------------
+  function renderLibrary(items, totalBytes, usedBytes) {
+    el.libraryList.innerHTML = "";
+    if (!items || items.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "lib-empty";
+      empty.textContent = "no entries — capture an IR signal and tap Save";
+      el.libraryList.appendChild(empty);
+    } else {
+      for (const it of items) {
+        const row = document.createElement("div");
+        row.className = "lib-item";
+
+        const name = document.createElement("span");
+        name.className = "lib-name";
+        name.textContent = it.name;
+        row.appendChild(name);
+
+        const size = document.createElement("span");
+        size.className = "lib-size";
+        size.textContent = (it.size || 0) + " B";
+        row.appendChild(size);
+
+        const playBtn = document.createElement("button");
+        playBtn.type = "button";
+        playBtn.className = "btn play";
+        playBtn.textContent = "▶ Play";
+        playBtn.addEventListener("click", () => {
+          sendCommand("ir_play " + it.name);
+        });
+        row.appendChild(playBtn);
+
+        el.libraryList.appendChild(row);
+      }
+    }
+    if (typeof totalBytes === "number" && typeof usedBytes === "number") {
+      const pct = totalBytes ? Math.round((usedBytes / totalBytes) * 100) : 0;
+      el.libraryMeta.textContent =
+        `${items ? items.length : 0} files · ${usedBytes}/${totalBytes} B (${pct}%)`;
+    } else {
+      el.libraryMeta.textContent = "";
+    }
+  }
+
+  // Inspect every JSON event: if it carries an FS list, refresh the panel.
+  // If it's a save/remove acknowledgement, auto-refresh so the user sees
+  // the change without an extra tap.
+  function interceptForLibrary(obj) {
+    if (obj.source !== "fs") return;
+    if (obj.event === "list") {
+      renderLibrary(obj.items || [], obj.total, obj.used);
+    } else if (obj.event === "save" || obj.event === "remove") {
+      sendCommand("fs_list");
+    }
+  }
+
   // ---------- Status indicator ----------------------------------------
   function setStatus(stateName, label) {
     el.status.dataset.state = stateName;
@@ -648,10 +819,14 @@
   }
 
   function setConnected(isConnected) {
-    el.cmd.disabled       = !isConnected;
-    el.sendBtn.disabled   = !isConnected;
-    el.irPayload.disabled = !isConnected;
-    el.irSendBtn.disabled = !isConnected;
+    el.cmd.disabled         = !isConnected;
+    el.sendBtn.disabled     = !isConnected;
+    el.irPayload.disabled   = !isConnected;
+    el.irSendBtn.disabled   = !isConnected;
+    el.irSaveName.disabled  = !isConnected;
+    el.irSaveBtn.disabled   = !isConnected;
+    el.libToggleBtn.disabled   = !isConnected;
+    el.libRefreshBtn.disabled  = !isConnected;
     el.connectBtn.textContent       = isConnected ? "Disconnect" : "Connect";
     el.connectBtn.classList.toggle("btn-primary", !isConnected);
     el.connectBtn.classList.toggle("btn-danger",   isConnected);
@@ -827,6 +1002,27 @@
     // sees clean tokens.
     const cleaned = payload.replace(/^ir_send\s+/i, "").replace(/\s+/g, " ");
     sendCommand("ir_send " + cleaned);
+  });
+
+  el.irSaveForm.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const name = el.irSaveName.value.trim();
+    if (!name) return;
+    if (!/^[A-Za-z0-9_\-]{1,32}$/.test(name)) {
+      logError("save: name must match [A-Za-z0-9_-]{1,32}");
+      return;
+    }
+    sendCommand("ir_save " + name);
+    el.irSaveName.value = "";
+  });
+
+  el.libToggleBtn.addEventListener("click", () => {
+    const open = el.library.classList.toggle("open");
+    if (open && state.port) sendCommand("fs_list");
+  });
+
+  el.libRefreshBtn.addEventListener("click", () => {
+    if (state.port) sendCommand("fs_list");
   });
 
   el.quickBar.addEventListener("click", (ev) => {

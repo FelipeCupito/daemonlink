@@ -1,0 +1,22 @@
+# DaemonLink partition table — fork of huge_app.csv
+# Adds a dedicated `littlefs` data partition (label != "spiffs") so our
+# DaemonLink_FS module mounts LittleFS on it without disturbing Marauder's
+# SPIFFS-backed settings store. Both partitions use SubType=spiffs because
+# that is the generic "data" subtype on ESP32; ESP-IDF discriminates by
+# partition LABEL, not subtype.
+#
+# Layout (4 MB):
+#   nvs       0x09000  20 KB
+#   otadata   0x0E000   8 KB
+#   app0      0x10000  3.25 MB   (Marauder + DaemonLink firmware)
+#   spiffs    0x350000 256 KB    (Marauder settings — required upstream)
+#   littlefs  0x390000 384 KB    (DaemonLink user payloads)
+#   coredump  0x3F0000  64 KB
+#
+# Name,     Type, SubType, Offset,   Size,      Flags
+nvs,        data, nvs,     0x9000,   0x5000,
+otadata,    data, ota,     0xe000,   0x2000,
+app0,       app,  ota_0,   0x10000,  0x340000,
+spiffs,     data, spiffs,  0x350000, 0x40000,
+littlefs,   data, spiffs,  0x390000, 0x60000,
+coredump,   data, coredump,0x3F0000, 0x10000,
