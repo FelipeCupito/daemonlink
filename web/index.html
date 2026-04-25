@@ -220,6 +220,74 @@
     .line.meta { color: var(--fg-dim); font-style: italic; }
     .line.meta::before { content: "· "; }
 
+    /* ----- Structured event cards (Phase E) ------------------------- */
+    .card {
+      display: block;
+      margin: 4px 0;
+      padding: 6px 8px;
+      border-left: 3px solid var(--accent-2);
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.02);
+      font-size: 12px;
+    }
+    .card.nfc { border-left-color: var(--nfc); }
+    .card.ir  { border-left-color: var(--ir);  }
+    .card.sys { border-left-color: var(--sys); }
+    .card.err { border-left-color: var(--err); background: rgba(255, 95, 109, 0.06); }
+
+    .card-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 2px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 1px 6px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--fg-dim);
+    }
+    .card.nfc .badge { color: var(--nfc); }
+    .card.ir  .badge { color: var(--ir);  }
+    .card.sys .badge { color: var(--sys); }
+    .card.err .badge { color: var(--err); }
+
+    .card-title {
+      flex: 1 1 auto;
+      color: var(--fg);
+      font-weight: 500;
+      word-break: break-word;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      column-gap: 10px;
+      row-gap: 1px;
+      margin-top: 2px;
+      font-size: 11.5px;
+    }
+    .kv .k { color: var(--fg-dim); }
+    .kv .v { color: var(--fg); word-break: break-word; }
+    .kv .v.mono { font-variant-numeric: tabular-nums; }
+    .kv .v.long {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+    .kv .v.long:hover {
+      -webkit-line-clamp: unset;
+      overflow: auto;
+    }
+
     /* -------- input area --------------------------------------------- */
     .input-bar {
       flex: 0 0 auto;
@@ -406,9 +474,9 @@
   }, { passive: true });
 
   // ---------- Console helpers -----------------------------------------
+  // Channel routing for plain-text lines (Marauder native logs and any
+  // pre-JSON-era firmware).
   function classify(line) {
-    // Channel prefixes from the firmware: [NFC], [IR], [SYS]. Marauder's
-    // error/warning lines are also colorized for legibility.
     if (line.startsWith("[NFC]"))  return "nfc";
     if (line.startsWith("[IR]"))   return "ir";
     if (line.startsWith("[SYS]"))  return "sys";
@@ -417,24 +485,161 @@
     return "";
   }
 
-  function appendLine(text, cls) {
-    const span = document.createElement("span");
-    span.className = "line" + (cls ? " " + cls : "");
-    span.textContent = text;
-    el.consoleBox.appendChild(span);
-
-    // Trim history to keep the DOM cheap on long sessions.
+  function trimHistory() {
     while (el.consoleBox.childElementCount > 2000) {
       el.consoleBox.removeChild(el.consoleBox.firstChild);
     }
+  }
+
+  function flushScroll() {
     if (pinnedToBottom) {
       el.consoleBox.scrollTop = el.consoleBox.scrollHeight;
     }
   }
 
+  function appendLine(text, cls) {
+    const span = document.createElement("span");
+    span.className = "line" + (cls ? " " + cls : "");
+    span.textContent = text;
+    el.consoleBox.appendChild(span);
+    trimHistory();
+    flushScroll();
+  }
+
   function logMeta(text)  { appendLine(text, "meta"); }
   function logError(text) { appendLine(text, "err"); }
   function logTx(text)    { appendLine(text, "tx"); }
+
+  // ---------- Structured renderer (Phase E) ---------------------------
+  // Tries JSON.parse first; if the line is a DaemonLink-shaped event
+  // (object with a "source" string), renders it as a card. Anything else
+  // (Marauder native scan output, pre-Phase-E logs, garbled chunks) falls
+  // through to the plain-text renderer.
+
+  // Display titles per (source, event) tuple. Any combination not listed
+  // here just shows the event verbatim — keeps the UI forward-compatible
+  // when we add new event types in firmware.
+  const EVENT_TITLES = {
+    "nfc:tag":     "Tag detected",
+    "nfc:wait":    "Waiting for tag",
+    "nfc:timeout": "Tag wait timed out",
+    "nfc:ready":   "PN532 ready",
+    "ir:capture":  "IR signal captured",
+    "ir:wait":     "Capturing IR…",
+    "ir:timeout":  "IR capture timed out",
+    "ir:send":     "IR transmission",
+    "ir:ready":    "IR module ready",
+    "sys:help":    "Available DaemonLink commands",
+  };
+
+  // Keys we *don't* want to display as raw key/value rows (already used
+  // for the title or visually redundant).
+  const HIDDEN_KEYS = new Set(["source", "event", "level", "msg", "commands", "note"]);
+
+  function renderJsonEvent(obj) {
+    const source = (obj.source || "").toLowerCase();
+    const isErr  = obj.level === "error";
+    const cls    = isErr ? "err" : (source || "");
+
+    const card = document.createElement("div");
+    card.className = "card" + (cls ? " " + cls : "");
+
+    // --- header: badge + title ---
+    const head = document.createElement("div");
+    head.className = "card-head";
+
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = (source || "log").toUpperCase();
+    head.appendChild(badge);
+
+    const title = document.createElement("span");
+    title.className = "card-title";
+    if (isErr) {
+      title.textContent = obj.msg || "error";
+    } else {
+      title.textContent =
+        EVENT_TITLES[`${source}:${obj.event}`] ||
+        obj.msg ||
+        obj.event ||
+        "event";
+    }
+    head.appendChild(title);
+    card.appendChild(head);
+
+    // --- key/value table ---
+    const kv = document.createElement("div");
+    kv.className = "kv";
+    let rendered = 0;
+    for (const [k, v] of Object.entries(obj)) {
+      if (HIDDEN_KEYS.has(k)) continue;
+      if (v === null || v === undefined) continue;
+
+      const kSpan = document.createElement("span");
+      kSpan.className = "k";
+      kSpan.textContent = k;
+
+      const vSpan = document.createElement("span");
+      vSpan.className = "v mono";
+      let text;
+      if (typeof v === "object") {
+        try { text = JSON.stringify(v); } catch (_) { text = String(v); }
+      } else {
+        text = String(v);
+      }
+      // Long replay/raw payloads get clamped with hover-to-expand.
+      if (text.length > 80) vSpan.classList.add("long");
+      vSpan.textContent = text;
+
+      kv.appendChild(kSpan);
+      kv.appendChild(vSpan);
+      rendered++;
+    }
+    if (rendered > 0) card.appendChild(kv);
+
+    // --- special case: dl_help renders the commands array as a list ---
+    if (Array.isArray(obj.commands)) {
+      const list = document.createElement("div");
+      list.className = "kv";
+      for (const c of obj.commands) {
+        const k = document.createElement("span");
+        k.className = "k";
+        k.textContent = c.name;
+        const v = document.createElement("span");
+        v.className = "v";
+        v.textContent = c.desc || "";
+        list.appendChild(k);
+        list.appendChild(v);
+      }
+      card.appendChild(list);
+    }
+
+    el.consoleBox.appendChild(card);
+    trimHistory();
+    flushScroll();
+  }
+
+  // Heuristic check: only call JSON.parse on lines that *look* like a
+  // JSON object — saves the parse cost (and stack trace) on every
+  // Marauder log line. Allow optional leading whitespace.
+  function looksLikeJson(line) {
+    return /^\s*\{/.test(line);
+  }
+
+  function handleLine(line) {
+    if (looksLikeJson(line)) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj && typeof obj === "object" && typeof obj.source === "string") {
+          renderJsonEvent(obj);
+          return;
+        }
+      } catch (_) {
+        // Fall through to plain-text rendering.
+      }
+    }
+    appendLine(line, classify(line));
+  }
 
   // ---------- Status indicator ----------------------------------------
   function setStatus(stateName, label) {
@@ -547,7 +752,7 @@
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        if (value !== undefined) appendLine(value, classify(value));
+        if (value !== undefined) handleLine(value);
       }
     } finally {
       try { reader.releaseLock(); } catch (_) {}

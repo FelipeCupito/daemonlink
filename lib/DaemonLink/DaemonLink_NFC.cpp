@@ -1,56 +1,62 @@
 // ============================================================================
 //  DaemonLink_NFC.cpp
-//  Implementacion del modulo NFC. Mantiene la salida formateada con un prefijo
-//  "[NFC]" para que el parser del frontend (PWA) pueda enrutar las lineas
-//  por canal.
+//  Salida en JSON minificado (una linea + '\n') para consumo de la PWA.
+//  Memoria: el JsonDocument vive en el stack del caller (FreeRTOS task con
+//  4-6 KB), heap interno se libera al salir de scope. Documentos pequeños
+//  (<256 B), sin riesgo de OOM aun bajo presion.
 // ============================================================================
 #include "DaemonLink_NFC.h"
+#include "DaemonLink_Json.h"
 #include <Wire.h>
 
-// IRQ y RESET no estan cableados en este diseño -> -1 para ambos.
-// Adafruit_PN532 con ese constructor usa el modo I2C sobre `Wire` por defecto.
 DaemonLink_NFC::DaemonLink_NFC()
     : _pn532(/*irq=*/-1, /*reset=*/-1),
       _ready(false),
       _fwVersion(0) {}
 
 bool DaemonLink_NFC::begin() {
-    // Levantamos el bus I2C en los pines del stack de hardware (8/9).
     Wire.begin(DAEMONLINK_PN532_SDA, DAEMONLINK_PN532_SCL);
-    Wire.setClock(100000);  // PN532 es estable a 100 kHz; 400k da timeouts.
+    Wire.setClock(100000);  // 100 kHz estable; 400 kHz da timeouts en cableados largos.
 
     _pn532.begin();
-
     _fwVersion = _pn532.getFirmwareVersion();
     if (!_fwVersion) {
-        Serial.println(F("[NFC] ERROR: PN532 no responde en I2C (SDA=8 SCL=9)"));
+        DaemonLink::emitError("nfc", "PN532 not responding on I2C (SDA=8 SCL=9)");
         _ready = false;
         return false;
     }
 
-    Serial.print(F("[NFC] PN532 OK, firmware=0x"));
-    Serial.println(_fwVersion, HEX);
+    {
+        JsonDocument d;
+        d["source"]   = "nfc";
+        d["event"]    = "ready";
+        d["fw"]       = _fwVersion;       // entero — la PWA puede mostrarlo en hex
+        d["sda"]      = DAEMONLINK_PN532_SDA;
+        d["scl"]      = DAEMONLINK_PN532_SCL;
+        DaemonLink::emitJson(d);
+    }
 
-    // SAM = Secure Access Module. Lo dejamos en modo "normal" sin pasarela.
-    // Necesario antes de cualquier readPassiveTargetID().
     _pn532.SAMConfig();
-
     _ready = true;
     return true;
 }
 
 bool DaemonLink_NFC::readMifareUID(uint16_t timeout_ms) {
     if (!_ready) {
-        Serial.println(F("[NFC] ERROR: modulo no inicializado"));
+        DaemonLink::emitError("nfc", "module not initialized");
         return false;
+    }
+
+    {
+        JsonDocument d;
+        d["source"]     = "nfc";
+        d["event"]      = "wait";
+        d["timeout_ms"] = timeout_ms;
+        DaemonLink::emitJson(d);
     }
 
     uint8_t uid[DAEMONLINK_NFC_UID_MAX] = {0};
     uint8_t uidLength = 0;
-
-    Serial.print(F("[NFC] Esperando tag ISO14443A (timeout="));
-    Serial.print(timeout_ms);
-    Serial.println(F("ms)..."));
 
     bool found = _pn532.readPassiveTargetID(
         PN532_MIFARE_ISO14443A,
@@ -60,26 +66,41 @@ bool DaemonLink_NFC::readMifareUID(uint16_t timeout_ms) {
     );
 
     if (!found) {
-        Serial.println(F("[NFC] No se detecto tag (timeout)"));
+        JsonDocument d;
+        d["source"] = "nfc";
+        d["event"]  = "timeout";
+        d["msg"]    = "no tag detected";
+        DaemonLink::emitJson(d);
         return false;
     }
 
-    Serial.print(F("[NFC] UID len="));
-    Serial.print(uidLength);
-    Serial.print(F(" bytes: "));
-    printUIDHex(uid, uidLength);
-    Serial.println();
-
-    // Tipo aproximado segun longitud de UID.
-    if (uidLength == 4) {
-        Serial.println(F("[NFC] tipo=Mifare Classic (UID de 4 bytes)"));
-    } else if (uidLength == 7) {
-        Serial.println(F("[NFC] tipo=Mifare Ultralight / DESFire (UID de 7 bytes)"));
+    // Format UID as "aa:bb:cc:dd" using a fixed-size stack buffer
+    // (max 7 bytes -> 7*3 chars + NUL = 22).
+    char uidStr[22];
+    char* p = uidStr;
+    for (uint8_t i = 0; i < uidLength; i++) {
+        if (i) *p++ = ':';
+        sprintf(p, "%02x", uid[i]);
+        p += 2;
     }
+    *p = '\0';
 
+    const char* kind = "iso14443a";
+    if      (uidLength == 4) kind = "mifare_classic";
+    else if (uidLength == 7) kind = "mifare_ultralight_or_desfire";
+
+    JsonDocument d;
+    d["source"]   = "nfc";
+    d["event"]    = "tag";
+    d["type"]     = kind;
+    d["uid"]      = uidStr;
+    d["uid_len"]  = uidLength;
+    DaemonLink::emitJson(d);
     return true;
 }
 
+// Sin uso desde la migracion a JSON, pero la dejamos por compatibilidad de la
+// API publica de la clase.
 void DaemonLink_NFC::printUIDHex(const uint8_t* uid, uint8_t length) {
     for (uint8_t i = 0; i < length; i++) {
         if (uid[i] < 0x10) Serial.print('0');

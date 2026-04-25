@@ -7,6 +7,7 @@
 #include "DaemonLink_CLI.h"
 #include "DaemonLink_NFC.h"
 #include "DaemonLink_IR.h"
+#include "DaemonLink_Json.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -51,37 +52,42 @@ void irSendTask(void* arg) {
 }
 
 void printDlHelp() {
-    Serial.println(F("[SYS] DaemonLink commands:"));
-    Serial.println(F("  nfc_read              - read Mifare UID via PN532 (async)"));
-    Serial.println(F("  ir_capture            - capture & decode IR remote (async)"));
-    Serial.println(F("  ir_send <payload>     - transmit IR. Two formats:"));
-    Serial.println(F("                            <PROTO> <bits> <hex>"));
-    Serial.println(F("                            raw <khz> <us,us,us,...>"));
-    Serial.println(F("  dl_help               - show this list"));
-    Serial.println(F("[SYS] (Marauder native commands keep working: help, scanall, ...)"));
+    JsonDocument d;
+    d["source"] = "sys";
+    d["event"]  = "help";
+    JsonArray cmds = d["commands"].to<JsonArray>();
+
+    auto add = [&](const char* name, const char* desc) {
+        JsonObject c = cmds.add<JsonObject>();
+        c["name"] = name;
+        c["desc"] = desc;
+    };
+    add("nfc_read",   "read Mifare UID via PN532 (async)");
+    add("ir_capture", "capture & decode IR remote (async)");
+    add("ir_send",    "transmit IR: '<PROTO> <bits> <hex>' or 'raw <khz> <us,...>'");
+    add("dl_help",    "show this list");
+
+    d["note"] = "Marauder native commands keep working (help, scanall, ...)";
+    DaemonLink::emitJson(d);
 }
 
 }  // namespace
 
 void DaemonLink_initCli() {
-    Serial.println(F("[SYS] DaemonLink CLI shim online"));
+    DaemonLink::emitInfo("sys", "DaemonLink CLI shim online");
 
     // --- NFC ---
-    if (g_nfc.begin()) {
-        g_nfc_ok = true;
-    } else {
-        g_nfc_ok = false;
-        Serial.println(F("[SYS] WARN: NFC unavailable, nfc_read disabled"));
+    g_nfc_ok = g_nfc.begin();
+    if (!g_nfc_ok) {
+        DaemonLink::emitError("sys", "NFC unavailable, nfc_read disabled");
     }
 
     // --- IR ---
-    // begin() solo hace enableIRIn() y devuelve true; no hay protocolo de
-    // detection de hardware (un VS1838B sin señal no genera trafico).
-    if (g_ir.begin()) {
-        g_ir_ok = true;
-    } else {
-        g_ir_ok = false;
-        Serial.println(F("[SYS] WARN: IR receiver init failed, ir_capture disabled"));
+    // begin() devuelve true sin probe de hardware (un VS1838B sin señal
+    // no genera trafico). Mantenemos el patron por simetria.
+    g_ir_ok = g_ir.begin();
+    if (!g_ir_ok) {
+        DaemonLink::emitError("sys", "IR init failed, ir_capture/ir_send disabled");
     }
 }
 
@@ -92,11 +98,11 @@ bool DaemonLink_handleCli(const String& input) {
 
     if (input == "nfc_read") {
         if (!g_nfc_ok) {
-            Serial.println(F("[NFC] ERROR: module not initialized"));
+            DaemonLink::emitError("nfc", "module not initialized");
             return true;
         }
         if (g_nfc_busy) {
-            Serial.println(F("[NFC] BUSY: a read is already in progress"));
+            DaemonLink::emitError("nfc", "BUSY — a read is already in progress");
             return true;
         }
 
@@ -104,7 +110,7 @@ bool DaemonLink_handleCli(const String& input) {
         BaseType_t r = xTaskCreatePinnedToCore(
             nfcReadTask,
             "dl_nfc_read",
-            4096,        // stack: PN532 + Serial buffer caben holgados
+            4096,        // stack: PN532 + Serial + JsonDocument caben holgados
             nullptr,
             1,           // prioridad baja: por debajo del stack de RF
             nullptr,
@@ -112,20 +118,20 @@ bool DaemonLink_handleCli(const String& input) {
         );
         if (r != pdPASS) {
             g_nfc_busy = false;
-            Serial.println(F("[NFC] ERROR: failed to spawn task"));
+            DaemonLink::emitError("nfc", "failed to spawn task");
         } else {
-            Serial.println(F("[NFC] dispatch OK (async, present tag now)"));
+            DaemonLink::emitInfo("nfc", "dispatch ok (async)");
         }
         return true;
     }
 
     if (input == "ir_capture") {
         if (!g_ir_ok) {
-            Serial.println(F("[IR] ERROR: module not initialized"));
+            DaemonLink::emitError("ir", "module not initialized");
             return true;
         }
         if (g_ir_busy) {
-            Serial.println(F("[IR] BUSY: a capture is already in progress"));
+            DaemonLink::emitError("ir", "BUSY — another IR op is in progress");
             return true;
         }
 
@@ -133,17 +139,17 @@ bool DaemonLink_handleCli(const String& input) {
         BaseType_t r = xTaskCreatePinnedToCore(
             irCaptureTask,
             "dl_ir_cap",
-            6144,        // stack mayor: resultToSourceCode arma un String grande
+            6144,        // stack mayor: replay String + JsonDocument
             nullptr,
-            1,           // misma prioridad que NFC: por debajo del stack de RF
+            1,
             nullptr,
-            1            // core 1, mismo esquema que NFC
+            1
         );
         if (r != pdPASS) {
             g_ir_busy = false;
-            Serial.println(F("[IR] ERROR: failed to spawn task"));
+            DaemonLink::emitError("ir", "failed to spawn task");
         } else {
-            Serial.println(F("[IR] dispatch OK (async, point a remote)"));
+            DaemonLink::emitInfo("ir", "dispatch ok (capture)");
         }
         return true;
     }
@@ -153,11 +159,11 @@ bool DaemonLink_handleCli(const String& input) {
     // queremos que se solapen aunque sean perifericos distintos.
     if (input.startsWith("ir_send ") || input == "ir_send") {
         if (!g_ir_ok) {
-            Serial.println(F("[IR] ERROR: module not initialized"));
+            DaemonLink::emitError("ir", "module not initialized");
             return true;
         }
         if (g_ir_busy) {
-            Serial.println(F("[IR] BUSY: another IR op is in progress"));
+            DaemonLink::emitError("ir", "BUSY — another IR op is in progress");
             return true;
         }
 
@@ -169,7 +175,7 @@ bool DaemonLink_handleCli(const String& input) {
         BaseType_t r = xTaskCreatePinnedToCore(
             irSendTask,
             "dl_ir_send",
-            6144,        // mismo presupuesto que ir_capture; sendRaw aloca un buffer
+            6144,
             payload,
             1,
             nullptr,
@@ -178,9 +184,9 @@ bool DaemonLink_handleCli(const String& input) {
         if (r != pdPASS) {
             delete payload;
             g_ir_busy = false;
-            Serial.println(F("[IR] ERROR: failed to spawn task"));
+            DaemonLink::emitError("ir", "failed to spawn task");
         } else {
-            Serial.println(F("[IR] dispatch OK (tx)"));
+            DaemonLink::emitInfo("ir", "dispatch ok (send)");
         }
         return true;
     }
