@@ -25,3 +25,9 @@ build/
 # OS
 Thumbs.db
 external/ESP32Marauder/esp32_marauder/esp32_marauder.ino.cpp
+
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+.runtimeconfig.json
