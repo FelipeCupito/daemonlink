@@ -23,6 +23,138 @@ index 3728b04..41bd791 100644
  
  #ifdef HAS_SCREEN
    #include "MenuFunctions.h"
+diff --git a/esp32_marauder/configs.h b/esp32_marauder/configs.h
+index 466ca02..1e8129b 100644
+--- a/esp32_marauder/configs.h
++++ b/esp32_marauder/configs.h
+@@ -24,6 +24,9 @@
+   //#define ESP32_LDDB
+   //#define MARAUDER_DEV_BOARD_PRO
+   //#define XIAO_ESP32_S3
++  // MARAUDER_DAEMONLINK is selected via -DMARAUDER_DAEMONLINK=1 in platformio.ini.
++  // Headless ESP32-S3 DevKitC-1 profile used by DaemonLink — no display, no
++  // buttons, no SD; PN532 (I2C 8/9) + IR (4/5) reserved at the pin level.
+   //#define MARAUDER_REV_FEATHER
+   //#define MARAUDER_CYD_MICRO // 2432S028
+   //#define MARAUDER_CYD_2USB // Another 2432S028 but it has tWo UsBs OoOoOoO
+@@ -98,6 +101,8 @@
+     #define HARDWARE_NAME "Flipper Zero Dev Board Pro"
+   #elif defined(XIAO_ESP32_S3)
+     #define HARDWARE_NAME "XIAO ESP32 S3"
++  #elif defined(MARAUDER_DAEMONLINK)
++    #define HARDWARE_NAME "DaemonLink ESP32-S3"
+   #elif defined(MARAUDER_C5)
+     #define HARDWARE_NAME "ESP32-C5 DevKit"
+   #elif defined(MARAUDER_V8)
+@@ -463,6 +468,99 @@
+     //#define HAS_GPS
+   #endif
+ 
++  // ============================================================================
++  //  MARAUDER_DAEMONLINK — Headless profile for DaemonLink (ESP32-S3 DevKitC-1).
++  //  Wi-Fi/BT scan & attack stack stays enabled; everything that requires a
++  //  display, buttons, SD card, battery, GPS, NeoPixel or power-mgmt IC is
++  //  explicitly OFF. Pins 4, 5, 8 and 9 are reserved for DaemonLink modules
++  //  (IR RX/TX and PN532 I2C) — see DL_* macros below.
++  // ============================================================================
++  #ifdef MARAUDER_DAEMONLINK
++    //#define HAS_BATTERY
++    #define HAS_BT
++    //#define HAS_BUTTONS
++    //#define HAS_NEOPIXEL_LED
++    //#define HAS_PWR_MGMT
++    //#define HAS_SCREEN
++    //#define HAS_SD
++    //#define HAS_TEMP_SENSOR
++    //#define HAS_GPS
++    //#define HAS_MINI_KB    // <- would steal Wire(8,9), keep OFF.
++    #define HAS_PSRAM
++    #define HAS_NIMBLE_2     // we pin h2zero/NimBLE-Arduino 2.x in platformio.ini
++    // HAS_IDF_3 is intentionally NOT defined: it gates code that requires
++    // arduino-esp32 v3 / ESP-IDF v5 (e.g. WIFI_AUTH_WPA3_ENTERPRISE). This
++    // project is on espressif32 platform v6.x -> arduino-esp32 v2 / IDF v4.
++
++    // --- DaemonLink reserved pins (DO NOT reassign) -------------------------
++    #define DL_PN532_SDA  8
++    #define DL_PN532_SCL  9
++    #define DL_IR_RX      4
++    #define DL_IR_TX      5
++
++    // --- Sentinel -1 for hardware DaemonLink does NOT have. These guards are
++    //     defensive: even if a future Marauder feature references one of these
++    //     macros without its HAS_* gate, the build will not silently grab a
++    //     real GPIO. -1 is Marauder's convention for "absent".
++    #ifndef SD_CS
++      #define SD_CS       -1
++    #endif
++    #ifndef SD_SCK
++      #define SD_SCK      -1
++    #endif
++    #ifndef SD_MISO
++      #define SD_MISO     -1
++    #endif
++    #ifndef SD_MOSI
++      #define SD_MOSI     -1
++    #endif
++    #ifndef TFT_CS
++      #define TFT_CS      -1
++    #endif
++    #ifndef TFT_DC
++      #define TFT_DC      -1
++    #endif
++    #ifndef TFT_RST
++      #define TFT_RST     -1
++    #endif
++    #ifndef TFT_BL
++      #define TFT_BL      -1
++    #endif
++    #ifndef TFT_MOSI
++      #define TFT_MOSI    -1
++    #endif
++    #ifndef TFT_MISO
++      #define TFT_MISO    -1
++    #endif
++    #ifndef TFT_SCLK
++      #define TFT_SCLK    -1
++    #endif
++    #ifndef TOUCH_CS
++      #define TOUCH_CS    -1
++    #endif
++    #ifndef U_BTN
++      #define U_BTN       -1
++    #endif
++    #ifndef D_BTN
++      #define D_BTN       -1
++    #endif
++    #ifndef L_BTN
++      #define L_BTN       -1
++    #endif
++    #ifndef R_BTN
++      #define R_BTN       -1
++    #endif
++    #ifndef C_BTN
++      #define C_BTN       -1
++    #endif
++    #ifndef BATTERY_PIN
++      #define BATTERY_PIN -1
++    #endif
++    #ifndef CHARGING_PIN
++      #define CHARGING_PIN -1
++    #endif
++  #endif
++
+   #ifdef MARAUDER_C5
+     //#define HAS_FLIPPER_LED
+     //#define FLIPPER_ZERO_HAT
+@@ -2467,6 +2565,8 @@
+     #define MEM_LOWER_LIM 10000
+   #elif defined(XIAO_ESP32_S3)
+     #define MEM_LOWER_LIM 10000
++  #elif defined(MARAUDER_DAEMONLINK)
++    #define MEM_LOWER_LIM 10000
+   #elif defined(MARAUDER_C5)
+     #define MEM_LOWER_LIM 10000
+   #elif defined(MARAUDER_V8)
 diff --git a/esp32_marauder/esp32_marauder.ino b/esp32_marauder/esp32_marauder.ino
 index 26b0c74..0a060d2 100644
 --- a/esp32_marauder/esp32_marauder.ino

@@ -24,3 +24,4 @@ build/
 
 # OS
 Thumbs.db
+external/ESP32Marauder/esp32_marauder/esp32_marauder.ino.cpp

@@ -32,10 +32,26 @@ import subprocess
 import sys
 from pathlib import Path
 
+import os
+
 # ---------------------------------------------------------------------------
 # Layout
 # ---------------------------------------------------------------------------
-ROOT       = Path(__file__).resolve().parents[1]
+def _resolve_root() -> Path:
+    """Find the repo root robustly: SCons (PlatformIO) does not define
+    __file__ when sourcing extra_scripts, so we fall back through several
+    strategies in order of trust."""
+    # 1. PlatformIO exposes the project directory as PROJECT_DIR in the env.
+    pio_root = os.environ.get("PROJECT_DIR")
+    if pio_root and Path(pio_root).is_dir():
+        return Path(pio_root).resolve()
+    # 2. Standalone Python: __file__ is defined.
+    if "__file__" in globals():
+        return Path(globals()["__file__"]).resolve().parents[1]
+    # 3. Last resort: assume CWD is the project root.
+    return Path.cwd().resolve()
+
+ROOT       = _resolve_root()
 SUBMODULE  = ROOT / "external" / "ESP32Marauder"
 SKETCH_DIR = SUBMODULE / "esp32_marauder"
 PATCH_FILE = ROOT / "patches" / "marauder.patch"
@@ -110,6 +126,9 @@ def apply_forward() -> int:
         return 0
     if state == "applied":
         ok("Patch already applied — skipping.")
+        # Even if the patch is applied, the .ino.cpp companion may have been
+        # cleaned (.pio purge, fresh checkout, etc.) so refresh it on every run.
+        materialize_ino_cpp()
         return 0
     if state == "conflict":
         err("Patch does NOT apply cleanly. Upstream Marauder probably moved.")
@@ -123,7 +142,53 @@ def apply_forward() -> int:
         err(r.stderr.strip())
         return 1
     ok("Patch applied.")
+    materialize_ino_cpp()
     return 0
+
+
+def materialize_ino_cpp() -> None:
+    """PlatformIO only auto-converts .ino -> .cpp when src_dir is the project
+    default. With src_dir pointing into the submodule, that step is skipped
+    and the build fails with "esp32_marauder.ino.cpp: No such file". We mimic
+    the arduino-builder behaviour: prepend `#include <Arduino.h>` and emit a
+    .ino.cpp companion alongside the .ino. Forward declarations are scraped
+    via a small regex pass so any function called before its definition (the
+    classic .ino footgun) still resolves at compile time.
+
+    The companion file is regenerated on every build to stay in sync if the
+    .ino changes; it is NOT tracked by git (.ino.cpp is gitignored)."""
+    import re
+
+    ino = SKETCH_DIR / "esp32_marauder.ino"
+    if not ino.exists():
+        return
+    cpp = SKETCH_DIR / "esp32_marauder.ino.cpp"
+
+    src = ino.read_text(encoding="utf-8", errors="replace")
+    # Top-level (non-static) function definitions: very simple heuristic
+    # that catches the patterns Marauder actually uses. Skips lines that
+    # are inside a class body — none in this file at the top scope.
+    proto_re = re.compile(
+        r"^(?P<sig>[A-Za-z_][\w :<>\*&,]*\s+[A-Za-z_]\w*\s*\([^;{}\n]*\))\s*\{",
+        re.MULTILINE,
+    )
+    seen, protos = set(), []
+    for m in proto_re.finditer(src):
+        sig = " ".join(m.group("sig").split())
+        if sig in seen:
+            continue
+        seen.add(sig)
+        protos.append(sig + ";")
+
+    header = ["#include <Arduino.h>", ""]
+    if protos:
+        header.append("// --- arduino-builder style forward declarations (auto-generated) ---")
+        header.extend(protos)
+        header.append("// --- end forward declarations ---")
+        header.append("")
+    out = "\n".join(header) + "\n" + src
+    cpp.write_text(out, encoding="utf-8")
+    ok(f"Materialized {cpp.relative_to(ROOT)} ({len(protos)} forward decls).")
 
 
 def apply_reverse() -> int:
