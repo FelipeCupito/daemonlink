@@ -1,0 +1,6 @@
+# Python dependencies for the GitHub Actions firmware job.
+# Loosely pinned: PlatformIO bumps minor versions often and we want the
+# CI to keep working without manual upkeep. Lock these if a regression
+# ever lands.
+platformio>=6.1
+intelhex>=2.3
