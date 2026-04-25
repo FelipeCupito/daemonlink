@@ -50,13 +50,30 @@ DaemonLink/
 │   ├── icon.svg                              # any-purpose icon
 │   └── icon-maskable.svg                     # Android adaptive icon
 ├── firebase.json                             # Firebase Hosting config (see §8)
-├── .firebaserc                               # Firebase project alias
+├── .firebaserc                               # Firebase project alias (daemonlink-541cd)
+├── requirements.txt                          # Python deps for the CI runner
 └── .github/workflows/main.yml                # CI/CD pipeline (see §8)
 ```
 
 PlatformIO compiles `external/ESP32Marauder/esp32_marauder/` as the main sketch (`src_dir`); our `lib/DaemonLink/` is auto-linked. The patch script emits `esp32_marauder.ino.cpp` next to the .ino because PlatformIO does not auto-preprocess Arduino sketches when `src_dir` lives outside the project root.
 
-## 5. CLI Surface (DaemonLink commands)
+## 5. Current State — Phases A → H complete
+
+| Phase | Theme | Headline outcome |
+|---|---|---|
+| A   | Vendor Marauder + patch pipeline | submodule pinned, idempotent `apply_patches.py` |
+| A.5 | Compile target (`MARAUDER_DAEMONLINK`) | firmware compiles green for headless ESP32-S3 |
+| B   | Single-file PWA | Web Serial console, channel-coloured terminal |
+| B.1 | PWA installable + offline | manifest + Service Worker (`web/sw.js`) |
+| C   | IR capture | non-blocking RX on RMT/DMA, `[IR] capture` events |
+| D   | IR replay | `ir_send` parser (protocol + raw), `replay:` payload |
+| E   | JSON framing | every module emits structured `{source, event, ...}` lines |
+| G   | Tactical persistence | LittleFS partition + `ir_save` / `ir_play` / `fs_list` |
+| H   | Hosting + CI/CD | Firebase Hosting at `daemonlink-541cd.web.app` + GitHub Actions |
+
+(Phase F — CI-only — was folded into Phase H. There is no ungrouped Phase F.)
+
+### CLI surface
 All commands are absorbed by `DaemonLink_handleCli()` before Marauder's parser sees them. Marauder native commands (`scanall`, `sniffraw`, `attack -t deauth`, …) keep working untouched.
 
 | Command | Effect | Backed by |
@@ -74,7 +91,7 @@ All commands are absorbed by `DaemonLink_handleCli()` before Marauder's parser s
 
 ## 6. Communication Protocol (Phase E) — JSON Contract
 
-Every event our modules emit is a **single line of minified JSON terminated by `\n`**. Marauder's native plain-text logs are NOT touched and the PWA falls through them via a `^\s*\{` heuristic.
+Every event our modules emit is a **single line of minified JSON terminated by `\n`**. Plain-text framing with `[NFC]` / `[IR]` prefixes was retired in this phase — the PWA no longer regex-matches; it `JSON.parse`s. Marauder's native plain-text logs are NOT touched and the PWA falls through them via a `^\s*\{` heuristic.
 
 ### Required fields
 - `source`: one of `"nfc"`, `"ir"`, `"fs"`, `"sys"`. Routes the card colour and the badge in the PWA.
@@ -100,7 +117,7 @@ Every event our modules emit is a **single line of minified JSON terminated by `
 
 ## 7. Storage & Partitions (Phase G)
 
-Marauder mounts SPIFFS for its settings store. We mount **LittleFS in a separate partition** so the two filesystems never alias the same flash region.
+Marauder mounts SPIFFS for its settings store inside `settings.cpp`. **We mount LittleFS in a separate partition** so the two filesystems never alias the same flash region — neither side knows the other exists.
 
 ### `boards/daemonlink_partitions.csv`
 ```
@@ -129,17 +146,18 @@ The PWA library panel auto-refreshes when it sees `{source: fs, event: save | re
 - Offline-capable: `web/sw.js` precaches the shell on `install`, `network-first` for navigation requests (so the shell rolls forward when online), `cache-first` for same-origin assets, passthrough for cross-origin. `CACHE_VERSION` constant — bump it when shipping a shell change.
 
 ### Hosting on Firebase
+- Live URL: **`https://daemonlink-541cd.web.app`** (live channel, served by Firebase Hosting).
 - `firebase.json` configures `web/` as the public root with sane PWA cache headers:
   - `sw.js`, `index.html` → `no-cache, no-store, must-revalidate` (CDN can never pin a stale shell).
   - `manifest.json` → 5-minute revalidating cache.
   - `*.svg` → `immutable, max-age=1y` (icons are content-hashed by filename — we never rename them).
   - `Permissions-Policy: serial=(self)` blocks any future iframe from abusing Web Serial against the device.
-- `.firebaserc` holds the project alias (operator updates with `firebase use --add`).
+- `.firebaserc` pins the project alias `default → daemonlink-541cd`.
 
 ### CI/CD on GitHub Actions (`.github/workflows/main.yml`)
 Three jobs, all triggered on push/PR to `main`:
-1. **firmware** — checks out submodules, sets up Python 3.11, caches `~/.platformio/{packages,platforms,.cache}` and `.pio/libdeps`, then runs `apply_patches.py --status` + `apply_patches.py` + `pio run`. Uploads `firmware.bin/elf/partitions.bin` as a 30-day artifact. Catches Marauder-upstream drift before any human notices.
-2. **deploy** — depends on `firmware`, gated to push-on-main. Ships `web/` to Firebase Hosting on the `live` channel via `FirebaseExtended/action-hosting-deploy@v0`. Requires `FIREBASE_PROJECT_ID` + `FIREBASE_SERVICE_ACCOUNT` repo secrets (the latter is auto-provisioned by `firebase init hosting:github`).
+1. **firmware** — checks out submodules (NON-recursive: Marauder pins old NimBLE/TFT_eSPI as nested submodules and we don't want PIO to find them under `lib_extra_dirs`), sets up Python 3.11 with pip cache, caches `~/.platformio/{packages,platforms,.cache}` and `.pio/libdeps`, then runs `apply_patches.py --status` + `apply_patches.py` + `pio run`. Uploads `firmware.bin/elf/partitions.bin` as a 30-day artifact. Catches Marauder-upstream drift before any human notices.
+2. **deploy** — depends on `firmware`, gated to push-on-main. Ships `web/` to Firebase Hosting on the `live` channel via `FirebaseExtended/action-hosting-deploy@v0`. Authenticates with the `FIREBASE_SERVICE_ACCOUNT_DAEMONLINK_541CD` secret auto-provisioned by `firebase init hosting:github`; project id is hardcoded in the workflow.
 3. **preview** — every PR gets a throwaway preview channel (`expires: 7d`); the action posts the preview URL as a PR comment.
 
 A `concurrency` group cancels redundant in-flight runs on the same branch.
@@ -165,7 +183,7 @@ After that, regular `pio run -t upload` is fine for normal iteration.
 `format-on-fail` is enabled, so the first boot self-formats. No `uploadfs` step required.
 
 ## 10. Operator Flow (no hardware required to design against)
-1. Open the PWA at `https://<project-id>.web.app` in Chrome on Android (enable `chrome://flags/#enable-experimental-web-platform-features` if Web Serial is gated).
+1. Open `https://daemonlink-541cd.web.app` in Chrome on Android (enable `chrome://flags/#enable-experimental-web-platform-features` if Web Serial is gated).
 2. Tap **Install** in the browser menu — DaemonLink shows up as a standalone app with the dark icon. Works in airplane mode.
 3. Plug the ESP32-S3 via USB-C → tap **Connect** → pick the CDC port.
 4. Tap **Capture IR**, point a remote at the receiver. The card shows protocol/bits/hex with a clamped `replay` field.
@@ -182,7 +200,7 @@ When the user asks to continue, read the current project state (this file is aut
 Documented so future-Claude does not re-debate decisions or duplicate work.
 
 ### Hardware features
-- **`nfc_write`** — extend `DaemonLink_NFC` with `nfc_write_block <sector> <key> <data>` for Mifare Classic. Authenticates with key A/B before writing. Will reuse the existing FreeRTOS task pattern.
+- **`nfc_write`** — extend `DaemonLink_NFC` with `nfc_write_block <sector> <key> <data>` for Mifare Classic. Authenticates with key A/B before writing. Reuses the existing FreeRTOS task pattern.
 - **RF Sub-1 GHz module (CC1101)** — replays for car key fobs, garage remotes, etc. SPI pins already reserved (`SCK=12, MISO=13, MOSI=11`). New `lib/DaemonLink/DaemonLink_RF.{h,cpp}` + commands `rf_capture`, `rf_send`, `rf_save`/`rf_play` (mirroring the IR command shape).
 - **NRF24L01 (2.4 GHz)** — for Mousejack-style HID injection. Same SPI bus as CC1101 with separate CS.
 
@@ -191,6 +209,7 @@ Documented so future-Claude does not re-debate decisions or duplicate work.
 - **Telemetry / heartbeat** — periodic `{source: sys, event: heartbeat, free_heap, uptime}` so the PWA can detect a hung device.
 
 ### Frontend / Ops
-- **Library export/import** — let the PWA download `/ir/<name>.json` (single file or zipped) for backup, and re-upload to a different DaemonLink. Web Serial protocol: a `fs_get <name>` command that streams the file body and a `fs_put <name> <base64>` command that writes it.
+- **Service Worker "Update available" prompt** — today the SW logs `update available — reload to apply` to the meta channel, but the user can miss it. Promote to a sticky banner inside the console with a one-tap "Reload" button so a fresh shell is always one gesture away.
+- **Library export/import to PC** — let the PWA download `/ir/<name>.json` (single file or zipped) for backup, and re-upload to a different DaemonLink. Web Serial protocol: a `fs_get <name>` command that streams the file body and a `fs_put <name> <base64>` command that writes it.
 - **Saved-payload metadata** — friendly description + tags + date in each LittleFS file so the library panel can group/filter (e.g. "all TV remotes").
 - **Cancel-current-task** button — `dl_cancel` command + a kill-switch that `vTaskDelete()`'s the active worker (NFC waiting on a tag, IR capture timeout, etc.).
