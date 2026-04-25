@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#080a08" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>DaemonLink :: Console</title>
+  <style>
+    /* ====================================================================
+       DaemonLink Console — single-file PWA
+       Mobile-first portrait, terminal aesthetic.
+       Tested target: Chrome for Android (Web Serial API requires Chromium).
+       ==================================================================== */
+    :root {
+      --bg:        #080a08;
+      --bg-2:      #0e120e;
+      --bg-3:      #14181a;
+      --border:    #1f2724;
+      --fg:        #c8e6c8;
+      --fg-dim:    #6f8a6f;
+      --accent:    #57ff8c;        /* primary console green */
+      --accent-2:  #2bb35a;
+      --nfc:       #5be0ff;        /* cyan for [NFC] lines */
+      --ir:        #ffd84a;        /* amber for [IR] lines */
+      --sys:       #b06bff;        /* violet for [SYS] lines */
+      --err:       #ff5f6d;
+      --warn:      #ffae42;
+      --tx:        #87afff;        /* blue for echoed user commands */
+      --font-mono: ui-monospace, "JetBrains Mono", "Fira Mono", "SF Mono",
+                   "Cascadia Code", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-mono);
+      font-size: 14px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      height: 100dvh;          /* respect mobile address bar */
+      max-width: 720px;
+      margin: 0 auto;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right)
+               env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+
+    /* -------- header ------------------------------------------------- */
+    header {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--bg-2);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .brand .name {
+      color: var(--accent);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+    .brand .tag {
+      color: var(--fg-dim);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--fg-dim);
+      background: var(--bg-3);
+    }
+    .status .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--err);
+      box-shadow: 0 0 6px var(--err);
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+    .status[data-state="connected"] { color: var(--accent); }
+    .status[data-state="connected"] .dot {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+    }
+    .status[data-state="connecting"] { color: var(--warn); }
+    .status[data-state="connecting"] .dot {
+      background: var(--warn);
+      box-shadow: 0 0 8px var(--warn);
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.35; }
+    }
+
+    /* -------- buttons ------------------------------------------------ */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 36px;
+      padding: 6px 14px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.03em;
+      color: var(--accent);
+      background: transparent;
+      border: 1px solid var(--accent-2);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.05s;
+      user-select: none;
+    }
+    .btn:hover:not(:disabled) {
+      background: rgba(87, 255, 140, 0.08);
+      border-color: var(--accent);
+    }
+    .btn:active:not(:disabled) { transform: scale(0.97); }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .btn-primary {
+      color: var(--bg);
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-2);
+      border-color: var(--accent-2);
+    }
+    .btn-danger {
+      color: var(--err);
+      border-color: var(--err);
+    }
+    .btn-danger:hover:not(:disabled) {
+      background: rgba(255, 95, 109, 0.08);
+    }
+
+    /* -------- console ------------------------------------------------ */
+    main {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #console {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 10px 12px;
+      background: var(--bg);
+      font-size: 12.5px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+    }
+    #console::-webkit-scrollbar         { width: 6px; }
+    #console::-webkit-scrollbar-track   { background: transparent; }
+    #console::-webkit-scrollbar-thumb   { background: var(--border); border-radius: 3px; }
+
+    .line {
+      display: block;
+      padding: 1px 0;
+    }
+    .line.nfc  { color: var(--nfc); }
+    .line.ir   { color: var(--ir);  }
+    .line.sys  { color: var(--sys); }
+    .line.err  { color: var(--err); }
+    .line.warn { color: var(--warn); }
+    .line.tx   { color: var(--tx); opacity: 0.85; }
+    .line.tx::before { content: "» "; color: var(--fg-dim); }
+    .line.meta { color: var(--fg-dim); font-style: italic; }
+    .line.meta::before { content: "· "; }
+
+    /* -------- input area --------------------------------------------- */
+    .input-bar {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--bg-2);
+      border-top: 1px solid var(--border);
+    }
+    #cmd {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 38px;
+      padding: 0 10px;
+      font-family: inherit;
+      font-size: 14px;
+      color: var(--fg);
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      outline: none;
+      caret-color: var(--accent);
+    }
+    #cmd:focus {
+      border-color: var(--accent-2);
+      box-shadow: 0 0 0 2px rgba(87, 255, 140, 0.12);
+    }
+    #cmd:disabled { opacity: 0.5; }
+    #cmd::placeholder { color: var(--fg-dim); }
+
+    .quick-bar {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 6px;
+      padding: 6px 12px 10px;
+      background: var(--bg-2);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .quick-bar::-webkit-scrollbar { display: none; }
+    .quick-bar .btn {
+      flex: 0 0 auto;
+      min-height: 32px;
+      padding: 4px 10px;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+    }
+
+    /* -------- responsive tweaks -------------------------------------- */
+    @media (max-width: 380px) {
+      header           { padding: 8px 10px; gap: 6px; }
+      .brand .tag      { display: none; }
+      .btn             { padding: 6px 10px; font-size: 12px; }
+      .input-bar       { padding: 6px 8px; }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="brand">
+      <span class="name">DaemonLink</span>
+      <span class="tag">// tactical console</span>
+    </div>
+    <span id="status" class="status" data-state="disconnected" aria-live="polite">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="statusLabel">offline</span>
+    </span>
+    <button id="connectBtn" class="btn btn-primary" type="button">Connect</button>
+  </header>
+
+  <main>
+    <div id="console" role="log" aria-live="polite" aria-label="Serial output"></div>
+
+    <div class="quick-bar" id="quickBar">
+      <button class="btn quick" type="button" data-cmd="nfc_read">Read Mifare</button>
+      <button class="btn quick" type="button" data-cmd="scanap">Scan APs</button>
+      <button class="btn quick" type="button" data-cmd="dl_help">DL Help</button>
+      <button class="btn quick" type="button" data-cmd="help">Marauder Help</button>
+      <button class="btn quick" type="button" data-cmd="stopscan">Stop Scan</button>
+    </div>
+
+    <form class="input-bar" id="inputForm" autocomplete="off">
+      <input id="cmd" type="text" placeholder="type a command and press Enter…"
+             autocapitalize="none" autocorrect="off" spellcheck="false" disabled />
+      <button id="sendBtn" class="btn" type="submit" disabled>Send</button>
+    </form>
+  </main>
+
+  <script>
+  /* =====================================================================
+     DaemonLink PWA — Web Serial bridge
+     ===================================================================== */
+  "use strict";
+
+  // ---------- DOM refs -------------------------------------------------
+  const el = {
+    consoleBox:  document.getElementById("console"),
+    status:      document.getElementById("status"),
+    statusLabel: document.getElementById("statusLabel"),
+    connectBtn:  document.getElementById("connectBtn"),
+    inputForm:   document.getElementById("inputForm"),
+    cmd:         document.getElementById("cmd"),
+    sendBtn:     document.getElementById("sendBtn"),
+    quickBar:    document.getElementById("quickBar"),
+  };
+
+  // ---------- State machine -------------------------------------------
+  const state = {
+    port:   null,
+    reader: null,
+    writer: null,
+    abort:  null,           // AbortController for the read loop
+    encoder: new TextEncoder(),
+  };
+
+  // Auto-scroll only when the user is already pinned to the bottom — so
+  // scrolling up to read history isn't yanked away by new lines.
+  let pinnedToBottom = true;
+  el.consoleBox.addEventListener("scroll", () => {
+    const dist = el.consoleBox.scrollHeight - el.consoleBox.scrollTop - el.consoleBox.clientHeight;
+    pinnedToBottom = dist < 24;
+  }, { passive: true });
+
+  // ---------- Console helpers -----------------------------------------
+  function classify(line) {
+    // Channel prefixes from the firmware: [NFC], [IR], [SYS]. Marauder's
+    // error/warning lines are also colorized for legibility.
+    if (line.startsWith("[NFC]"))  return "nfc";
+    if (line.startsWith("[IR]"))   return "ir";
+    if (line.startsWith("[SYS]"))  return "sys";
+    if (/error|fail/i.test(line))  return "err";
+    if (/warn/i.test(line))        return "warn";
+    return "";
+  }
+
+  function appendLine(text, cls) {
+    const span = document.createElement("span");
+    span.className = "line" + (cls ? " " + cls : "");
+    span.textContent = text;
+    el.consoleBox.appendChild(span);
+
+    // Trim history to keep the DOM cheap on long sessions.
+    while (el.consoleBox.childElementCount > 2000) {
+      el.consoleBox.removeChild(el.consoleBox.firstChild);
+    }
+    if (pinnedToBottom) {
+      el.consoleBox.scrollTop = el.consoleBox.scrollHeight;
+    }
+  }
+
+  function logMeta(text)  { appendLine(text, "meta"); }
+  function logError(text) { appendLine(text, "err"); }
+  function logTx(text)    { appendLine(text, "tx"); }
+
+  // ---------- Status indicator ----------------------------------------
+  function setStatus(stateName, label) {
+    el.status.dataset.state = stateName;
+    el.statusLabel.textContent = label;
+  }
+
+  function setConnected(isConnected) {
+    el.cmd.disabled     = !isConnected;
+    el.sendBtn.disabled = !isConnected;
+    el.connectBtn.textContent       = isConnected ? "Disconnect" : "Connect";
+    el.connectBtn.classList.toggle("btn-primary", !isConnected);
+    el.connectBtn.classList.toggle("btn-danger",   isConnected);
+    if (isConnected) {
+      setStatus("connected", "online");
+      el.cmd.focus();
+    } else {
+      setStatus("disconnected", "offline");
+    }
+  }
+
+  // ---------- Line transformer (chunks -> complete lines) -------------
+  // Spec-recommended pattern: a TransformStream that buffers incoming
+  // text and emits one chunk per line, splitting on \r?\n. This is what
+  // makes channel-prefix routing work; without it, [NFC] could land in
+  // a different chunk than the rest of the line.
+  class LineBreakTransformer {
+    constructor() { this.buffer = ""; }
+    transform(chunk, controller) {
+      this.buffer += chunk;
+      const lines = this.buffer.split(/\r?\n/);
+      this.buffer = lines.pop();         // last fragment may be partial
+      for (const line of lines) controller.enqueue(line);
+    }
+    flush(controller) {
+      if (this.buffer) controller.enqueue(this.buffer);
+    }
+  }
+
+  // ---------- Connect / disconnect ------------------------------------
+  async function connect() {
+    if (!("serial" in navigator)) {
+      logError("Web Serial API not supported. Use Chrome/Edge on desktop, or Chrome on Android (chrome://flags -> Experimental Web Platform features).");
+      return;
+    }
+
+    setStatus("connecting", "asking…");
+    let port;
+    try {
+      port = await navigator.serial.requestPort();
+    } catch (err) {
+      // User dismissed the picker — DOMException "NotFoundError".
+      setStatus("disconnected", "offline");
+      logMeta("port selection cancelled");
+      return;
+    }
+
+    try {
+      await port.open({ baudRate: 115200, dataBits: 8, stopBits: 1, parity: "none", flowControl: "none" });
+    } catch (err) {
+      setStatus("disconnected", "offline");
+      logError(`failed to open port: ${err.message}`);
+      return;
+    }
+
+    state.port = port;
+
+    // TX writer: keep a single Writer for the lifetime of the session.
+    state.writer = port.writable.getWriter();
+
+    // RX side: TextDecoder -> LineBreakTransformer -> for-await reader.
+    // We use AbortController to cancel the read pipeline on disconnect.
+    state.abort = new AbortController();
+    setConnected(true);
+
+    const info = port.getInfo?.();
+    if (info) {
+      logMeta(`connected: USB ${("0000" + (info.usbVendorId || 0).toString(16)).slice(-4)}:${("0000" + (info.usbProductId || 0).toString(16)).slice(-4)} @ 115200 8N1`);
+    } else {
+      logMeta("connected @ 115200 8N1");
+    }
+
+    port.addEventListener("disconnect", () => {
+      logError("device disconnected (cable pulled)");
+      teardown();
+    });
+
+    readLoop().catch((err) => {
+      if (err?.name !== "AbortError") {
+        logError(`read loop error: ${err.message}`);
+      }
+    });
+  }
+
+  async function readLoop() {
+    const decoder = new TextDecoderStream("utf-8", { fatal: false });
+    const lineStream = new TransformStream(new LineBreakTransformer());
+    const decoderClose = state.port.readable
+      .pipeTo(decoder.writable, { signal: state.abort.signal })
+      .catch(() => { /* abort throws; benign */ });
+
+    const reader = decoder.readable
+      .pipeThrough(lineStream)
+      .getReader();
+    state.reader = reader;
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value !== undefined) appendLine(value, classify(value));
+      }
+    } finally {
+      try { reader.releaseLock(); } catch (_) {}
+      state.reader = null;
+      await decoderClose;
+    }
+  }
+
+  async function disconnect() {
+    if (!state.port) return;
+    await teardown();
+  }
+
+  async function teardown() {
+    setStatus("connecting", "closing…");
+
+    // 1. Cancel the reader so the for-await loop exits.
+    if (state.abort) {
+      try { state.abort.abort(); } catch (_) {}
+    }
+    if (state.reader) {
+      try { await state.reader.cancel(); } catch (_) {}
+    }
+
+    // 2. Release the writer and close the port.
+    if (state.writer) {
+      try { await state.writer.close(); } catch (_) {}
+      try { state.writer.releaseLock(); } catch (_) {}
+      state.writer = null;
+    }
+    if (state.port) {
+      try { await state.port.close(); } catch (_) {}
+      state.port = null;
+    }
+    state.abort = null;
+
+    setConnected(false);
+    logMeta("disconnected");
+  }
+
+  // ---------- Send -----------------------------------------------------
+  async function sendCommand(cmd) {
+    cmd = cmd.trim();
+    if (!cmd || !state.writer) return;
+    try {
+      await state.writer.write(state.encoder.encode(cmd + "\n"));
+      logTx(cmd);
+    } catch (err) {
+      logError(`tx failed: ${err.message}`);
+    }
+  }
+
+  // ---------- Wire-up --------------------------------------------------
+  el.connectBtn.addEventListener("click", () => {
+    if (state.port) disconnect();
+    else            connect();
+  });
+
+  el.inputForm.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const text = el.cmd.value;
+    el.cmd.value = "";
+    sendCommand(text);
+  });
+
+  el.quickBar.addEventListener("click", (ev) => {
+    const target = ev.target.closest("button[data-cmd]");
+    if (!target || target.disabled) return;
+    sendCommand(target.dataset.cmd);
+  });
+
+  // Keep quick-action buttons in sync with connection state.
+  const quickButtons = el.quickBar.querySelectorAll("button.quick");
+  function syncQuickButtons() {
+    const enabled = !!state.port;
+    quickButtons.forEach((b) => { b.disabled = !enabled; });
+  }
+  // Patch setConnected to also sync the quick bar.
+  const _setConnected = setConnected;
+  setConnected = function(isConnected) {       // eslint-disable-line
+    _setConnected(isConnected);
+    syncQuickButtons();
+  };
+  syncQuickButtons();
+
+  // ---------- Boot banner ----------------------------------------------
+  appendLine("DaemonLink :: tactical console", "sys");
+  if (!("serial" in navigator)) {
+    logError("This browser does not expose the Web Serial API.");
+    logMeta("Use Chrome / Edge on desktop, or Chrome on Android.");
+    el.connectBtn.disabled = true;
+  } else {
+    logMeta("Web Serial API ready. Tap Connect, pick the ESP32-S3 port.");
+  }
+  </script>
+</body>
+</html>
