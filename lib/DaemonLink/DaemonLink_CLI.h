@@ -10,11 +10,11 @@
 //       early-return por input vacio:
 //           if (DaemonLink_handleCli(input)) return;
 //
-//  Comandos registrados (Fase A):
-//    - nfc_read   -> dispara una lectura de UID Mifare en una tarea
-//                    FreeRTOS aislada (no bloquea el loop principal).
-//    - dl_help    -> lista comandos DaemonLink (no toca el help nativo
-//                    de Marauder, que sigue funcionando con `help`).
+//  Comandos registrados:
+//    - nfc_read    -> lectura de UID Mifare (FreeRTOS task aislada).
+//    - ir_capture  -> captura/decodificacion de señal IR (FreeRTOS task).
+//    - dl_help     -> lista comandos DaemonLink (no toca el help nativo
+//                     de Marauder, que sigue funcionando con `help`).
 // ============================================================================
 #pragma once
 #ifndef DAEMONLINK_CLI_H
