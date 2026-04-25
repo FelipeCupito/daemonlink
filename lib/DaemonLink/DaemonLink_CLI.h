@@ -11,10 +11,12 @@
 //           if (DaemonLink_handleCli(input)) return;
 //
 //  Comandos registrados:
-//    - nfc_read    -> lectura de UID Mifare (FreeRTOS task aislada).
-//    - ir_capture  -> captura/decodificacion de señal IR (FreeRTOS task).
-//    - dl_help     -> lista comandos DaemonLink (no toca el help nativo
-//                     de Marauder, que sigue funcionando con `help`).
+//    - nfc_read              -> lectura de UID Mifare (FreeRTOS task).
+//    - ir_capture            -> captura/decodificacion IR (FreeRTOS task).
+//    - ir_send <payload>     -> transmision IR. Acepta:
+//                                 "<PROTO> <bits> <hex>"
+//                                 "raw <khz> <us,us,...>"
+//    - dl_help               -> lista comandos DaemonLink.
 // ============================================================================
 #pragma once
 #ifndef DAEMONLINK_CLI_H

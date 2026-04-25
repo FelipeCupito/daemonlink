@@ -40,11 +40,24 @@ void irCaptureTask(void* /*arg*/) {
     vTaskDelete(nullptr);
 }
 
+// Worker para transmision IR. Recibe el payload en heap (String*) — la
+// String original vive solo durante la llamada a DaemonLink_handleCli().
+void irSendTask(void* arg) {
+    String* payload = static_cast<String*>(arg);
+    g_ir.send(*payload);
+    delete payload;
+    g_ir_busy = false;
+    vTaskDelete(nullptr);
+}
+
 void printDlHelp() {
     Serial.println(F("[SYS] DaemonLink commands:"));
-    Serial.println(F("  nfc_read    - read Mifare UID via PN532 (async)"));
-    Serial.println(F("  ir_capture  - capture & decode IR remote (async)"));
-    Serial.println(F("  dl_help     - show this list"));
+    Serial.println(F("  nfc_read              - read Mifare UID via PN532 (async)"));
+    Serial.println(F("  ir_capture            - capture & decode IR remote (async)"));
+    Serial.println(F("  ir_send <payload>     - transmit IR. Two formats:"));
+    Serial.println(F("                            <PROTO> <bits> <hex>"));
+    Serial.println(F("                            raw <khz> <us,us,us,...>"));
+    Serial.println(F("  dl_help               - show this list"));
     Serial.println(F("[SYS] (Marauder native commands keep working: help, scanall, ...)"));
 }
 
@@ -131,6 +144,43 @@ bool DaemonLink_handleCli(const String& input) {
             Serial.println(F("[IR] ERROR: failed to spawn task"));
         } else {
             Serial.println(F("[IR] dispatch OK (async, point a remote)"));
+        }
+        return true;
+    }
+
+    // ir_send acepta argumentos -> startsWith() en vez de igualdad estricta.
+    // Reusa el flag g_ir_busy: TX y RX comparten el modulo IR, no
+    // queremos que se solapen aunque sean perifericos distintos.
+    if (input.startsWith("ir_send ") || input == "ir_send") {
+        if (!g_ir_ok) {
+            Serial.println(F("[IR] ERROR: module not initialized"));
+            return true;
+        }
+        if (g_ir_busy) {
+            Serial.println(F("[IR] BUSY: another IR op is in progress"));
+            return true;
+        }
+
+        // Heap-copy del payload: la String del input se libera en cuanto
+        // volvemos al parser de Marauder.
+        String* payload = new String(input.length() > 8 ? input.substring(8) : "");
+
+        g_ir_busy = true;
+        BaseType_t r = xTaskCreatePinnedToCore(
+            irSendTask,
+            "dl_ir_send",
+            6144,        // mismo presupuesto que ir_capture; sendRaw aloca un buffer
+            payload,
+            1,
+            nullptr,
+            1
+        );
+        if (r != pdPASS) {
+            delete payload;
+            g_ir_busy = false;
+            Serial.println(F("[IR] ERROR: failed to spawn task"));
+        } else {
+            Serial.println(F("[IR] dispatch OK (tx)"));
         }
         return true;
     }

@@ -268,6 +268,55 @@
       letter-spacing: 0.04em;
     }
 
+    /* -------- IR send strip (Phase D) ------------------------------- */
+    .ir-bar {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 6px;
+      padding: 6px 12px;
+      background: var(--bg-2);
+      border-top: 1px dashed var(--border);
+    }
+    .ir-bar .ir-label {
+      display: inline-flex;
+      align-items: center;
+      padding: 0 6px;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      color: var(--ir);
+      border-left: 2px solid var(--ir);
+    }
+    #irPayload {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 34px;
+      padding: 0 10px;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--fg);
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      outline: none;
+    }
+    #irPayload:focus {
+      border-color: var(--ir);
+      box-shadow: 0 0 0 2px rgba(255, 216, 74, 0.12);
+    }
+    #irPayload::placeholder { color: var(--fg-dim); }
+    #irPayload:disabled     { opacity: 0.5; }
+    #irSendBtn {
+      flex: 0 0 auto;
+      min-height: 34px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: var(--ir);
+      border-color: var(--ir);
+    }
+    #irSendBtn:hover:not(:disabled) {
+      background: rgba(255, 216, 74, 0.08);
+    }
+
     /* -------- responsive tweaks -------------------------------------- */
     @media (max-width: 380px) {
       header           { padding: 8px 10px; gap: 6px; }
@@ -293,6 +342,14 @@
 
   <main>
     <div id="console" role="log" aria-live="polite" aria-label="Serial output"></div>
+
+    <form class="ir-bar" id="irForm" autocomplete="off">
+      <span class="ir-label" aria-hidden="true">IR ▶</span>
+      <input id="irPayload" type="text"
+             placeholder="paste replay payload, e.g. NEC 32 0x00FF629D  or  raw 38 9000,4500,…"
+             autocapitalize="none" autocorrect="off" spellcheck="false" disabled />
+      <button id="irSendBtn" class="btn" type="submit" disabled>Transmit IR</button>
+    </form>
 
     <div class="quick-bar" id="quickBar">
       <button class="btn quick" type="button" data-cmd="nfc_read">Read Mifare</button>
@@ -326,6 +383,9 @@
     cmd:         document.getElementById("cmd"),
     sendBtn:     document.getElementById("sendBtn"),
     quickBar:    document.getElementById("quickBar"),
+    irForm:      document.getElementById("irForm"),
+    irPayload:   document.getElementById("irPayload"),
+    irSendBtn:   document.getElementById("irSendBtn"),
   };
 
   // ---------- State machine -------------------------------------------
@@ -383,8 +443,10 @@
   }
 
   function setConnected(isConnected) {
-    el.cmd.disabled     = !isConnected;
-    el.sendBtn.disabled = !isConnected;
+    el.cmd.disabled       = !isConnected;
+    el.sendBtn.disabled   = !isConnected;
+    el.irPayload.disabled = !isConnected;
+    el.irSendBtn.disabled = !isConnected;
     el.connectBtn.textContent       = isConnected ? "Disconnect" : "Connect";
     el.connectBtn.classList.toggle("btn-primary", !isConnected);
     el.connectBtn.classList.toggle("btn-danger",   isConnected);
@@ -549,6 +611,17 @@
     const text = el.cmd.value;
     el.cmd.value = "";
     sendCommand(text);
+  });
+
+  el.irForm.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const payload = el.irPayload.value.trim();
+    if (!payload) return;
+    // Normalise: drop a leading "ir_send " if the user pasted the full
+    // command, and collapse internal whitespace so the firmware parser
+    // sees clean tokens.
+    const cleaned = payload.replace(/^ir_send\s+/i, "").replace(/\s+/g, " ");
+    sendCommand("ir_send " + cleaned);
   });
 
   el.quickBar.addEventListener("click", (ev) => {

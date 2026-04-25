@@ -11,6 +11,7 @@
 
 #include <Arduino.h>
 #include <IRrecv.h>
+#include <IRsend.h>
 #include <IRutils.h>
 
 // --- Pinout (segun stack de hardware del proyecto) ---
@@ -46,11 +47,21 @@ public:
     // Devuelve true si decodifico una señal, false si timeout.
     bool capture(uint32_t timeout_ms = 4000);
 
+    // Parsea y emite un payload IR. Acepta dos formatos:
+    //   1) "<PROTOCOL> <bits> <hex>"   ej. "NEC 32 0x00FF629D"
+    //   2) "raw <khz> <us,us,us,...>"  ej. "raw 38 9000,4500,560,560,..."
+    // Imprime [IR] con el resultado. Devuelve true si transmitio.
+    bool send(const String& payload);
+
     bool isReady() const { return _ready; }
 
 private:
     IRrecv  _recv;
+    IRsend  _emit;
     bool    _ready;
+
+    bool sendProtocolFromString(const String& proto, const String& rest);
+    bool sendRawFromString(const String& rest);
 };
 
 #endif  // DAEMONLINK_IR_H
