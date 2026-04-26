@@ -708,9 +708,9 @@
     </div>
 
     <div class="tab-panel" id="panel-nfc" role="tabpanel" aria-labelledby="tab-nfc">
-      <button class="btn quick" type="button" data-cmd="nfc_read"                       disabled>▶ Read Mifare</button>
-      <button class="btn quick" type="button" data-cmd="nfc_nested" data-future="true"  disabled>Crack Nested</button>
-      <button class="btn quick" type="button" data-cmd="nfc_dump"   data-future="true"  disabled>Dump Sector</button>
+      <button class="btn quick" type="button" data-cmd="nfc_read"   disabled>▶ Read Mifare</button>
+      <button class="btn quick" type="button" data-cmd="nfc_nested" disabled>Crack Nested</button>
+      <button class="btn quick" type="button" data-cmd="nfc_dump"   disabled>Dump Sector</button>
     </div>
 
     <div class="tab-panel" id="panel-sys" role="tabpanel" aria-labelledby="tab-sys">
@@ -834,16 +834,22 @@
   // here just shows the event verbatim — keeps the UI forward-compatible
   // when we add new event types in firmware.
   const EVENT_TITLES = {
-    "nfc:tag":     "Tag detected",
-    "nfc:wait":    "Waiting for tag",
-    "nfc:timeout": "Tag wait timed out",
-    "nfc:ready":   "PN532 ready",
-    "ir:capture":  "IR signal captured",
-    "ir:wait":     "Capturing IR…",
-    "ir:timeout":  "IR capture timed out",
-    "ir:send":     "IR transmission",
-    "ir:ready":    "IR module ready",
-    "sys:help":    "Available DaemonLink commands",
+    "nfc:tag":              "Tag detected",
+    "nfc:wait":             "Waiting for tag",
+    "nfc:timeout":          "Tag wait timed out",
+    "nfc:ready":            "PN532 ready",
+    "nfc:nested_start":     "Nested attack started",
+    "nfc:nested_progress":  "Nested attack — progress",
+    "nfc:nested_done":      "Nested attack done",
+    "nfc:dump_start":       "Mifare dump started",
+    "nfc:sector":           "Mifare sector",
+    "nfc:dump_done":        "Mifare dump done",
+    "ir:capture":           "IR signal captured",
+    "ir:wait":              "Capturing IR…",
+    "ir:timeout":           "IR capture timed out",
+    "ir:send":              "IR transmission",
+    "ir:ready":             "IR module ready",
+    "sys:help":             "Available DaemonLink commands",
   };
 
   // Keys we *don't* want to display as raw key/value rows (already used

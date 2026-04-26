@@ -36,6 +36,19 @@ public:
     // imprime el UID por Serial.println() y devuelve true si lo leyo.
     bool readMifareUID(uint16_t timeout_ms = 1000);
 
+    // --- Mifare Classic attacks (Phase I scaffolding) -------------------
+    // Both routines emit a stream of structured JSON events
+    // ({source:"nfc", event:"nested_start"|...} or
+    //  {source:"nfc", event:"dump_start"|"sector"|...}) so the PWA can
+    // render a live progress card. The `nested` implementation is a stub
+    // today: it advertises the start, simulates a recovery phase with
+    // vTaskDelay() and emits a placeholder result. `dumpTag` performs a
+    // real authenticate + read of Sector 0 with the factory default key
+    // (FFFFFFFFFFFF); the remaining 15 sectors are reported as pending
+    // until we wire in the full key bag in a follow-up iteration.
+    bool runNestedAttack();
+    bool dumpTag();
+
     // Estado del modulo (true tras un begin() exitoso).
     bool isReady() const { return _ready; }
 

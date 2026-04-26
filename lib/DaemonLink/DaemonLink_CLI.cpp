@@ -38,6 +38,18 @@ void nfcReadTask(void* /*arg*/) {
     vTaskDelete(nullptr);
 }
 
+void nfcNestedTask(void* /*arg*/) {
+    g_nfc.runNestedAttack();
+    g_nfc_busy = false;
+    vTaskDelete(nullptr);
+}
+
+void nfcDumpTask(void* /*arg*/) {
+    g_nfc.dumpTag();
+    g_nfc_busy = false;
+    vTaskDelete(nullptr);
+}
+
 void irCaptureTask(void* /*arg*/) {
     g_ir.capture(4000);          // ventana de 4s para apuntar el control
     g_ir_busy = false;
@@ -85,6 +97,8 @@ void printDlHelp() {
         c["desc"] = desc;
     };
     add("nfc_read",   "read Mifare UID via PN532 (async)");
+    add("nfc_nested", "nested attack on Mifare Classic — scaffolding (async)");
+    add("nfc_dump",   "dump Mifare Classic with default key — sector 0 today (async)");
     add("ir_capture", "capture & decode IR remote (async)");
     add("ir_send",    "transmit IR: '<PROTO> <bits> <hex>' or 'raw <khz> <us,...>'");
     add("ir_save",    "ir_save <name> — persist last capture to LittleFS");
@@ -152,6 +166,54 @@ bool DaemonLink_handleCli(const String& input) {
             DaemonLink::emitError("nfc", "failed to spawn task");
         } else {
             DaemonLink::emitInfo("nfc", "dispatch ok (async)");
+        }
+        return true;
+    }
+
+    // ----- nfc_nested ---------------------------------------------------
+    if (input == "nfc_nested") {
+        if (!g_nfc_ok) { DaemonLink::emitError("nfc", "module not initialized");      return true; }
+        if (g_nfc_busy){ DaemonLink::emitError("nfc", "BUSY — NFC op in progress");   return true; }
+
+        g_nfc_busy = true;
+        BaseType_t r = xTaskCreatePinnedToCore(
+            nfcNestedTask,
+            "dl_nfc_nested",
+            6144,        // stack mayor: 4 events emitidos + JsonDocument c/u
+            nullptr,
+            1,
+            nullptr,
+            1
+        );
+        if (r != pdPASS) {
+            g_nfc_busy = false;
+            DaemonLink::emitError("nfc", "failed to spawn task");
+        } else {
+            DaemonLink::emitInfo("nfc", "dispatch ok (nested)");
+        }
+        return true;
+    }
+
+    // ----- nfc_dump -----------------------------------------------------
+    if (input == "nfc_dump") {
+        if (!g_nfc_ok) { DaemonLink::emitError("nfc", "module not initialized");      return true; }
+        if (g_nfc_busy){ DaemonLink::emitError("nfc", "BUSY — NFC op in progress");   return true; }
+
+        g_nfc_busy = true;
+        BaseType_t r = xTaskCreatePinnedToCore(
+            nfcDumpTask,
+            "dl_nfc_dump",
+            6144,
+            nullptr,
+            1,
+            nullptr,
+            1
+        );
+        if (r != pdPASS) {
+            g_nfc_busy = false;
+            DaemonLink::emitError("nfc", "failed to spawn task");
+        } else {
+            DaemonLink::emitInfo("nfc", "dispatch ok (dump)");
         }
         return true;
     }

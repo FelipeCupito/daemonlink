@@ -12,6 +12,8 @@
 //
 //  Comandos registrados:
 //    - nfc_read              -> lectura de UID Mifare (FreeRTOS task).
+//    - nfc_nested            -> ataque nested sobre Mifare Classic (FreeRTOS).
+//    - nfc_dump              -> dump Mifare con clave default (FreeRTOS).
 //    - ir_capture            -> captura/decodificacion IR (FreeRTOS task).
 //    - ir_send <payload>     -> transmision IR. Acepta:
 //                                 "<PROTO> <bits> <hex>"
