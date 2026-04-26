@@ -32,6 +32,7 @@
       --accent-2:  #2bb35a;
       --nfc:       #5be0ff;        /* cyan for [NFC] lines */
       --ir:        #ffd84a;        /* amber for [IR] lines */
+      --bt:        #6b8dff;        /* steel-blue for [BT] lines / tab */
       --sys:       #b06bff;        /* violet for [SYS] lines */
       --err:       #ff5f6d;
       --warn:      #ffae42;
@@ -347,6 +348,7 @@
     }
     .tab:hover:not(:disabled)         { background: rgba(255, 255, 255, 0.025); }
     .tab.active                        { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab.active.tab-bt                 { color: var(--bt);     border-bottom-color: var(--bt);     }
     .tab.active.tab-ir                 { color: var(--ir);     border-bottom-color: var(--ir);     }
     .tab.active.tab-nfc                { color: var(--nfc);    border-bottom-color: var(--nfc);    }
     .tab.active.tab-sys                { color: var(--sys);    border-bottom-color: var(--sys);    }
@@ -377,6 +379,19 @@
       color: var(--fg-dim);
       font-size: 11.5px;
       font-style: italic;
+    }
+
+    /* Chips marked as 'future' (firmware command not implemented yet)
+       look slightly de-emphasised and carry a trailing asterisk. They
+       still send the command — Marauder replies 'Unknown command' which
+       doubles as a free TODO reminder until the C++ side ships. */
+    .btn.quick[data-future="true"] {
+      border-style: dashed;
+      opacity: 0.7;
+    }
+    .btn.quick[data-future="true"]::after {
+      content: " *";
+      color: var(--fg-dim);
     }
 
     /* -------- Library panel (Phase G) ------------------------------- */
@@ -658,6 +673,8 @@
     <nav class="tabs" id="tabs" role="tablist">
       <button class="tab tab-wifi active" type="button" role="tab"
               data-tab="wifi" aria-selected="true"  aria-controls="panel-wifi" disabled>Wi-Fi</button>
+      <button class="tab tab-bt"          type="button" role="tab"
+              data-tab="bt"   aria-selected="false" aria-controls="panel-bt"   disabled>BT</button>
       <button class="tab tab-ir"          type="button" role="tab"
               data-tab="ir"   aria-selected="false" aria-controls="panel-ir"   disabled>IR</button>
       <button class="tab tab-nfc"         type="button" role="tab"
@@ -667,11 +684,19 @@
     </nav>
 
     <!-- Per-channel chip rows. Only the .active one renders; others are
-         display:none. Hidden vs in-DOM matters: we keep them in the DOM
-         so disabled state and event listeners stay wired across switches. -->
+         display:none. Each panel scrolls horizontally on its own when
+         it overflows, so a single channel can grow without disturbing
+         the others. Chips marked data-future="true" are placeholders
+         for firmware commands we have not shipped yet. -->
     <div class="tab-panel active" id="panel-wifi" role="tabpanel" aria-labelledby="tab-wifi">
-      <button class="btn quick" type="button" data-cmd="scanap"   disabled>Scan APs</button>
-      <button class="btn quick" type="button" data-cmd="stopscan" disabled>Stop Scan</button>
+      <button class="btn quick" type="button" data-cmd="scanap"     disabled>Scan APs</button>
+      <button class="btn quick" type="button" data-cmd="sniffpmkid" disabled>Sniff PMKID</button>
+      <button class="btn quick" type="button" data-cmd="sniffprobe" disabled>Sniff Probes</button>
+      <button class="btn quick" type="button" data-cmd="stopscan"   disabled>Stop Scan</button>
+    </div>
+
+    <div class="tab-panel" id="panel-bt" role="tabpanel" aria-labelledby="tab-bt">
+      <button class="btn quick" type="button" data-cmd="scanbt" data-future="true" disabled>Scan BT</button>
     </div>
 
     <div class="tab-panel" id="panel-ir" role="tabpanel" aria-labelledby="tab-ir">
@@ -683,7 +708,9 @@
     </div>
 
     <div class="tab-panel" id="panel-nfc" role="tabpanel" aria-labelledby="tab-nfc">
-      <button class="btn quick" type="button" data-cmd="nfc_read" disabled>▶ Read Mifare</button>
+      <button class="btn quick" type="button" data-cmd="nfc_read"                       disabled>▶ Read Mifare</button>
+      <button class="btn quick" type="button" data-cmd="nfc_nested" data-future="true"  disabled>Crack Nested</button>
+      <button class="btn quick" type="button" data-cmd="nfc_dump"   data-future="true"  disabled>Dump Sector</button>
     </div>
 
     <div class="tab-panel" id="panel-sys" role="tabpanel" aria-labelledby="tab-sys">
