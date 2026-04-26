@@ -536,6 +536,70 @@
       font-size: 11px;
     }
 
+    /* -------- Update toast (Phase B.2) ------------------------------- */
+    /* Floats above the input bar (and above the on-screen keyboard if it
+       opens) without blocking the console. Dark surface, amber accent —
+       same colour we use for [IR] events and 'connecting' status, which
+       reads as "heads-up, not an error" in this palette. */
+    .update-toast {
+      position: fixed;
+      left: 50%;
+      /* env() padding so it stays clear of the home-indicator on iOS and
+         the gesture bar on Android in PWA-installed mode. The +84 px
+         lifts it above the input + tab strip combo. */
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 84px);
+      transform: translateX(-50%) translateY(12px);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      max-width: min(420px, calc(100% - 24px));
+      padding: 10px 12px;
+      background: var(--bg-3);
+      border: 1px solid var(--warn);
+      border-left: 3px solid var(--warn);
+      border-radius: 4px;
+      font-size: 12.5px;
+      color: var(--fg);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+      opacity: 0;
+      pointer-events: none;
+      visibility: hidden;
+      transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s linear 0.2s;
+      z-index: 100;
+    }
+    .update-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+      pointer-events: auto;
+      visibility: visible;
+      transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s;
+    }
+    .update-toast .toast-msg {
+      flex: 1 1 auto;
+      min-width: 0;
+      color: var(--warn);
+      letter-spacing: 0.02em;
+    }
+    .update-toast .toast-msg .toast-sub {
+      display: block;
+      color: var(--fg-dim);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-top: 1px;
+    }
+    .update-toast .toast-btn {
+      flex: 0 0 auto;
+      min-height: 30px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: var(--warn);
+      border-color: var(--warn);
+    }
+    .update-toast .toast-btn:hover:not(:disabled) {
+      background: rgba(255, 174, 66, 0.10);
+    }
+
     /* -------- responsive tweaks -------------------------------------- */
     @media (max-width: 380px) {
       header           { padding: 8px 10px; gap: 6px; }
@@ -633,6 +697,17 @@
       <button id="sendBtn" class="btn" type="submit" disabled>Send</button>
     </form>
   </main>
+
+  <!-- PWA update prompt — surfaced when sw.js detects a fresh shell
+       installed and waiting. Hidden until needed; the user dismisses it
+       by tapping Reload (which applies the update) or by ignoring it. -->
+  <div id="updateToast" class="update-toast" role="status" aria-live="polite" aria-hidden="true">
+    <span class="toast-msg">
+      Actualización táctica disponible
+      <span class="toast-sub">// new shell ready</span>
+    </span>
+    <button id="updateReloadBtn" class="btn toast-btn" type="button">Recargar</button>
+  </div>
 
   <script>
   /* =====================================================================
@@ -1208,25 +1283,75 @@
   // ---------- PWA: register the Service Worker ------------------------
   // Runs only on secure contexts (https / localhost). We register on the
   // window 'load' event so it does not race the initial paint, and we
-  // listen for `updatefound` so a new shell version doesn't surprise the
-  // user mid-session.
+  // surface fresh shells via a floating toast (Phase B.2) instead of a
+  // line in the console — it is too easy to miss a meta line in a long
+  // log.
   if ("serviceWorker" in navigator) {
+    const toast       = document.getElementById("updateToast");
+    const reloadBtn   = document.getElementById("updateReloadBtn");
+
+    // The worker the user has just been told about. Captured when the
+    // 'installed' state fires so the Reload button can postMessage to
+    // the right instance even if a newer one comes along later.
+    let waitingWorker = null;
+
+    function showUpdateToast(worker) {
+      waitingWorker = worker;
+      toast.classList.add("show");
+      toast.setAttribute("aria-hidden", "false");
+    }
+
+    function trackWorker(worker) {
+      if (!worker) return;
+      worker.addEventListener("statechange", () => {
+        if (worker.state === "installed" && navigator.serviceWorker.controller) {
+          // 'installed' + an existing controller = an UPDATE (vs the
+          // first-ever install on this device, where controller is null
+          // and the toast would be misleading).
+          showUpdateToast(worker);
+        }
+      });
+    }
+
+    reloadBtn.addEventListener("click", () => {
+      if (!waitingWorker) {
+        // Defensive: should not happen because the button is only
+        // visible when the toast is shown, but guard against double-tap.
+        window.location.reload();
+        return;
+      }
+      // Tell the new worker to take over right now. Our sw.js listens
+      // for SKIP_WAITING and calls self.skipWaiting().
+      waitingWorker.postMessage("SKIP_WAITING");
+    });
+
+    // skipWaiting() activates the new worker -> 'controllerchange' fires
+    // on the page. Reload exactly once, regardless of how many tabs are
+    // open or how many times the worker rolls forward.
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloading) return;
+      reloading = true;
+      window.location.reload();
+    });
+
     window.addEventListener("load", () => {
       navigator.serviceWorker
         .register("sw.js", { scope: "./" })
         .then((reg) => {
           logMeta(`service worker active (scope ${reg.scope})`);
+
+          // Edge case: page loaded with an already-waiting worker (e.g.
+          // user closed the previous tab without reloading). Show the
+          // toast immediately.
+          if (reg.waiting && navigator.serviceWorker.controller) {
+            showUpdateToast(reg.waiting);
+          }
+          // Worker installing right now — track it.
+          trackWorker(reg.installing);
+          // Future updates: each updatefound carries a fresh installer.
           reg.addEventListener("updatefound", () => {
-            const installing = reg.installing;
-            if (!installing) return;
-            installing.addEventListener("statechange", () => {
-              if (
-                installing.state === "installed" &&
-                navigator.serviceWorker.controller
-              ) {
-                logMeta("update available — reload to apply");
-              }
-            });
+            trackWorker(reg.installing);
           });
         })
         .catch((err) => logError(`SW registration failed: ${err.message}`));

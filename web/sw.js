@@ -10,7 +10,7 @@
    ===================================================================== */
 "use strict";
 
-const CACHE_VERSION = "daemonlink-shell-v1";
+const CACHE_VERSION = "daemonlink-shell-v2";
 const SHELL_ASSETS = [
   "./",
   "./index.html",
