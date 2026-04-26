@@ -318,22 +318,65 @@
     #cmd:disabled { opacity: 0.5; }
     #cmd::placeholder { color: var(--fg-dim); }
 
-    .quick-bar {
+    /* -------- Channel tabs (Wi-Fi / IR / NFC / ⋯) -------------------- */
+    /* The bottom controls used to be one long flat quick-bar with every
+       feature glued together. Phase H/UX split them by channel: a thin
+       tab strip selects the active channel, and only that channel's
+       chips render below. Each tab borrows the colour of its source
+       (matching the JSON event cards) so the active one is unambiguous. */
+    .tabs {
       flex: 0 0 auto;
       display: flex;
+      background: var(--bg-2);
+      border-top: 1px solid var(--border);
+    }
+    .tab {
+      flex: 1 1 0;
+      min-height: 38px;
+      padding: 8px 4px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--fg-dim);
+      font-family: inherit;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .tab:hover:not(:disabled)         { background: rgba(255, 255, 255, 0.025); }
+    .tab.active                        { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab.active.tab-ir                 { color: var(--ir);     border-bottom-color: var(--ir);     }
+    .tab.active.tab-nfc                { color: var(--nfc);    border-bottom-color: var(--nfc);    }
+    .tab.active.tab-sys                { color: var(--sys);    border-bottom-color: var(--sys);    }
+    .tab:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* Per-channel chip rows. Only the .active panel is rendered; the
+       others are display:none so they do not steal vertical space. */
+    .tab-panel {
+      flex: 0 0 auto;
+      display: none;
       gap: 6px;
-      padding: 6px 12px 10px;
+      padding: 8px 12px 10px;
       background: var(--bg-2);
       overflow-x: auto;
       scrollbar-width: none;
     }
-    .quick-bar::-webkit-scrollbar { display: none; }
-    .quick-bar .btn {
+    .tab-panel.active            { display: flex; }
+    .tab-panel::-webkit-scrollbar { display: none; }
+    .tab-panel .btn {
       flex: 0 0 auto;
       min-height: 32px;
-      padding: 4px 10px;
+      padding: 4px 12px;
       font-size: 12px;
       letter-spacing: 0.04em;
+    }
+    .tab-panel.empty {
+      justify-content: center;
+      color: var(--fg-dim);
+      font-size: 11.5px;
+      font-style: italic;
     }
 
     /* -------- Library panel (Phase G) ------------------------------- */
@@ -345,7 +388,7 @@
       background: var(--bg-2);
       border-top: 1px solid var(--border);
     }
-    .library.open { max-height: 50vh; overflow-y: auto; }
+    .library.open { max-height: 35vh; overflow-y: auto; }
     .library-head {
       display: flex;
       align-items: center;
@@ -407,9 +450,9 @@
     }
     .ir-tools.open { max-height: 220px; }
 
-    /* The toggle chip in the quick-bar shows an active state when the
-       panel is open, so the user can spot it at a glance. */
-    .quick-bar .btn.toggle.active {
+    /* The toggle chips inside the IR tab show an active state when their
+       panel is open, so the user can spot at a glance which one is up. */
+    .tab-panel .btn.toggle.active {
       background: rgba(255, 216, 74, 0.10);
       border-color: var(--ir);
       color: var(--ir);
@@ -548,17 +591,40 @@
       </form>
     </section>
 
-    <div class="quick-bar" id="quickBar">
-      <button class="btn quick" type="button" data-cmd="nfc_read">Read Mifare</button>
-      <button class="btn quick" type="button" data-cmd="ir_capture">Capture IR</button>
+    <nav class="tabs" id="tabs" role="tablist">
+      <button class="tab tab-wifi active" type="button" role="tab"
+              data-tab="wifi" aria-selected="true"  aria-controls="panel-wifi" disabled>Wi-Fi</button>
+      <button class="tab tab-ir"          type="button" role="tab"
+              data-tab="ir"   aria-selected="false" aria-controls="panel-ir"   disabled>IR</button>
+      <button class="tab tab-nfc"         type="button" role="tab"
+              data-tab="nfc"  aria-selected="false" aria-controls="panel-nfc"  disabled>NFC</button>
+      <button class="tab tab-sys"         type="button" role="tab"
+              data-tab="sys"  aria-selected="false" aria-controls="panel-sys"  disabled>···</button>
+    </nav>
+
+    <!-- Per-channel chip rows. Only the .active one renders; others are
+         display:none. Hidden vs in-DOM matters: we keep them in the DOM
+         so disabled state and event listeners stay wired across switches. -->
+    <div class="tab-panel active" id="panel-wifi" role="tabpanel" aria-labelledby="tab-wifi">
+      <button class="btn quick" type="button" data-cmd="scanap"   disabled>Scan APs</button>
+      <button class="btn quick" type="button" data-cmd="stopscan" disabled>Stop Scan</button>
+    </div>
+
+    <div class="tab-panel" id="panel-ir" role="tabpanel" aria-labelledby="tab-ir">
+      <button class="btn quick" type="button" data-cmd="ir_capture" disabled>▶ Capture</button>
       <button id="irToolsBtn"  class="btn quick toggle" type="button"
-              aria-expanded="false" aria-controls="irTools" disabled>IR Tools ▾</button>
+              aria-expanded="false" aria-controls="irTools" disabled>Transmit ▾</button>
       <button id="libToggleBtn" class="btn quick toggle" type="button"
               aria-expanded="false" aria-controls="library" disabled>Library ▾</button>
-      <button class="btn quick" type="button" data-cmd="scanap">Scan APs</button>
-      <button class="btn quick" type="button" data-cmd="dl_help">DL Help</button>
-      <button class="btn quick" type="button" data-cmd="help">Marauder Help</button>
-      <button class="btn quick" type="button" data-cmd="stopscan">Stop Scan</button>
+    </div>
+
+    <div class="tab-panel" id="panel-nfc" role="tabpanel" aria-labelledby="tab-nfc">
+      <button class="btn quick" type="button" data-cmd="nfc_read" disabled>▶ Read Mifare</button>
+    </div>
+
+    <div class="tab-panel" id="panel-sys" role="tabpanel" aria-labelledby="tab-sys">
+      <button class="btn quick" type="button" data-cmd="dl_help" disabled>DL Help</button>
+      <button class="btn quick" type="button" data-cmd="help"    disabled>Marauder Help</button>
     </div>
 
     <form class="input-bar" id="inputForm" autocomplete="off">
@@ -583,7 +649,6 @@
     inputForm:   document.getElementById("inputForm"),
     cmd:         document.getElementById("cmd"),
     sendBtn:     document.getElementById("sendBtn"),
-    quickBar:    document.getElementById("quickBar"),
     irForm:      document.getElementById("irForm"),
     irPayload:   document.getElementById("irPayload"),
     irSendBtn:   document.getElementById("irSendBtn"),
@@ -597,6 +662,10 @@
     library:     document.getElementById("library"),
     libraryList: document.getElementById("libraryList"),
     libraryMeta: document.getElementById("libraryMeta"),
+    tabs:        document.getElementById("tabs"),
+    tabButtons:  Array.from(document.querySelectorAll(".tab")),
+    tabPanels:   Array.from(document.querySelectorAll(".tab-panel")),
+    chipButtons: Array.from(document.querySelectorAll(".tab-panel .btn[data-cmd]")),
   };
 
   // ---------- State machine -------------------------------------------
@@ -1047,17 +1116,26 @@
     el.irSaveName.value = "";
   });
 
-  // Generic helper for chip <-> panel collapsibles. Keeps the chip's
-  // visual `active` state and ARIA attribute in sync with the panel.
+  // Mutex collapsibles: only one of {Library, IR Tools} can be open at
+  // a time. Opening one auto-closes any siblings — keeps the console
+  // visible and avoids stacking multiple panels over the log on phones.
+  const COLLAPSIBLES = [];      // {chip, panel, onOpen} registered by bindToggle
+  function setCollapsibleState(entry, open) {
+    entry.panel.classList.toggle("open", open);
+    entry.chip.classList.toggle("active", open);
+    entry.chip.setAttribute("aria-expanded", String(open));
+    entry.chip.textContent = entry.chip.textContent.replace(/[▾▴]\s*$/, "").trimEnd() +
+                             (open ? " ▴" : " ▾");
+  }
   function bindToggle(chip, panel, onOpen) {
+    const entry = { chip, panel, onOpen };
+    COLLAPSIBLES.push(entry);
     chip.addEventListener("click", () => {
-      const open = panel.classList.toggle("open");
-      chip.classList.toggle("active", open);
-      chip.setAttribute("aria-expanded", String(open));
-      // Keep the caret (▾ / ▴) consistent with the open state.
-      chip.textContent = chip.textContent.replace(/[▾▴]\s*$/, "").trimEnd() +
-                         (open ? " ▴" : " ▾");
-      if (open && onOpen) onOpen();
+      const willOpen = !panel.classList.contains("open");
+      // Close every other panel first, then flip ours.
+      COLLAPSIBLES.forEach((e) => { if (e !== entry) setCollapsibleState(e, false); });
+      setCollapsibleState(entry, willOpen);
+      if (willOpen && onOpen) onOpen();
     });
   }
 
@@ -1070,25 +1148,52 @@
     if (state.port) sendCommand("fs_list");
   });
 
-  el.quickBar.addEventListener("click", (ev) => {
-    const target = ev.target.closest("button[data-cmd]");
+  // ---------- Tab strip --------------------------------------------------
+  function activateTab(name) {
+    el.tabButtons.forEach((b) => {
+      const on = b.dataset.tab === name;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", String(on));
+    });
+    el.tabPanels.forEach((p) => {
+      p.classList.toggle("active", p.id === "panel-" + name);
+    });
+    // Auto-close any open collapsible (Library / IR Tools) when the
+    // active tab changes — otherwise a panel could stay open while its
+    // toggle chip is hidden inside a different tab, leaving the user no
+    // visible way to dismiss it. COLLAPSIBLES is populated by bindToggle
+    // calls further down; safe to read here because activateTab is only
+    // invoked from click handlers (after the script body finishes).
+    COLLAPSIBLES.forEach((e) => setCollapsibleState(e, false));
+  }
+  el.tabs.addEventListener("click", (ev) => {
+    const t = ev.target.closest(".tab");
+    if (!t || t.disabled) return;
+    activateTab(t.dataset.tab);
+  });
+
+  // ---------- Chip click delegation -------------------------------------
+  // Single document-level listener handles every chip across every panel.
+  document.addEventListener("click", (ev) => {
+    const target = ev.target.closest(".tab-panel .btn[data-cmd]");
     if (!target || target.disabled) return;
     sendCommand(target.dataset.cmd);
   });
 
-  // Keep quick-action buttons in sync with connection state.
-  const quickButtons = el.quickBar.querySelectorAll("button.quick");
-  function syncQuickButtons() {
-    const enabled = !!state.port;
-    quickButtons.forEach((b) => { b.disabled = !enabled; });
-  }
-  // Patch setConnected to also sync the quick bar.
+  // ---------- Connection-state sync for chips and tabs ------------------
+  // Chips with data-cmd (one-shot actions) and the tab buttons themselves
+  // need to enable/disable in lockstep with the Web Serial connection.
+  // Toggle chips (Transmit ▾ / Library ▾) live alongside data-cmd chips
+  // and are already handled in setConnected().
   const _setConnected = setConnected;
   setConnected = function(isConnected) {       // eslint-disable-line
     _setConnected(isConnected);
-    syncQuickButtons();
+    el.chipButtons.forEach((b) => { b.disabled = !isConnected; });
+    el.tabButtons.forEach((b) => { b.disabled = !isConnected; });
   };
-  syncQuickButtons();
+  // Initial paint: everything stays disabled until first connect.
+  el.chipButtons.forEach((b) => { b.disabled = true; });
+  el.tabButtons.forEach((b) => { b.disabled = true; });
 
   // ---------- Boot banner ----------------------------------------------
   appendLine("DaemonLink :: tactical console", "sys");
