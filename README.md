@@ -154,4 +154,5 @@ DaemonLink is intended **exclusively** for authorized security testing, educatio
 
 ## License
 
-TBD.
+[MIT](LICENSE) © 2026 Felipe Cupitó. The legal disclaimer above still
+applies — the licence covers the code, not the use cases.

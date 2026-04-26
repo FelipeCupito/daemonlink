@@ -391,6 +391,30 @@
       font-size: 11.5px;
     }
 
+    /* -------- IR Tools panel (collapsible) -------------------------- */
+    /* Wraps the IR-send strip and the IR-save row in a single element
+       that animates open/closed via max-height. Default = collapsed
+       so phones see only console + quick chips + main input on first
+       paint, leaving the maximum vertical space for the log when the
+       on-screen keyboard pops up. */
+    .ir-tools {
+      flex: 0 0 auto;
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.25s ease;
+      background: var(--bg-2);
+      border-top: 1px dashed var(--border);
+    }
+    .ir-tools.open { max-height: 220px; }
+
+    /* The toggle chip in the quick-bar shows an active state when the
+       panel is open, so the user can spot it at a glance. */
+    .quick-bar .btn.toggle.active {
+      background: rgba(255, 216, 74, 0.10);
+      border-color: var(--ir);
+      color: var(--ir);
+    }
+
     /* -------- IR send strip (Phase D) ------------------------------- */
     .ir-bar {
       flex: 0 0 auto;
@@ -398,7 +422,6 @@
       gap: 6px;
       padding: 6px 12px;
       background: var(--bg-2);
-      border-top: 1px dashed var(--border);
     }
     .ir-bar .ir-label {
       display: inline-flex;
@@ -440,12 +463,12 @@
       background: rgba(255, 216, 74, 0.08);
     }
 
-    /* Inline save row inside the IR strip */
+    /* Inline save row inside the IR-tools wrapper */
     .ir-save-row {
       flex: 0 0 auto;
       display: flex;
       gap: 6px;
-      padding: 0 12px 6px;
+      padding: 0 12px 8px;
       background: var(--bg-2);
     }
     #irSaveName {
@@ -507,26 +530,31 @@
       </div>
     </section>
 
-    <form class="ir-bar" id="irForm" autocomplete="off">
-      <span class="ir-label" aria-hidden="true">IR ▶</span>
-      <input id="irPayload" type="text"
-             placeholder="paste replay payload, e.g. NEC 32 0x00FF629D  or  raw 38 9000,4500,…"
-             autocapitalize="none" autocorrect="off" spellcheck="false" disabled />
-      <button id="irSendBtn" class="btn" type="submit" disabled>Transmit IR</button>
-    </form>
+    <section class="ir-tools" id="irTools" aria-label="IR transmit and save controls">
+      <form class="ir-bar" id="irForm" autocomplete="off">
+        <span class="ir-label" aria-hidden="true">IR ▶</span>
+        <input id="irPayload" type="text"
+               placeholder="paste replay payload, e.g. NEC 32 0x00FF629D  or  raw 38 9000,4500,…"
+               autocapitalize="none" autocorrect="off" spellcheck="false" disabled />
+        <button id="irSendBtn" class="btn" type="submit" disabled>Transmit IR</button>
+      </form>
 
-    <form class="ir-save-row" id="irSaveForm" autocomplete="off">
-      <input id="irSaveName" type="text"
-             placeholder="name for last capture (A-Z 0-9 _ -)"
-             pattern="[A-Za-z0-9_\-]{1,32}" maxlength="32"
-             autocapitalize="none" autocorrect="off" spellcheck="false" disabled />
-      <button id="irSaveBtn"   class="btn" type="submit" disabled>Save</button>
-      <button id="libToggleBtn" class="btn" type="button" disabled>Library</button>
-    </form>
+      <form class="ir-save-row" id="irSaveForm" autocomplete="off">
+        <input id="irSaveName" type="text"
+               placeholder="name for last capture (A-Z 0-9 _ -)"
+               pattern="[A-Za-z0-9_\-]{1,32}" maxlength="32"
+               autocapitalize="none" autocorrect="off" spellcheck="false" disabled />
+        <button id="irSaveBtn" class="btn" type="submit" disabled>Save</button>
+      </form>
+    </section>
 
     <div class="quick-bar" id="quickBar">
       <button class="btn quick" type="button" data-cmd="nfc_read">Read Mifare</button>
       <button class="btn quick" type="button" data-cmd="ir_capture">Capture IR</button>
+      <button id="irToolsBtn"  class="btn quick toggle" type="button"
+              aria-expanded="false" aria-controls="irTools" disabled>IR Tools ▾</button>
+      <button id="libToggleBtn" class="btn quick toggle" type="button"
+              aria-expanded="false" aria-controls="library" disabled>Library ▾</button>
       <button class="btn quick" type="button" data-cmd="scanap">Scan APs</button>
       <button class="btn quick" type="button" data-cmd="dl_help">DL Help</button>
       <button class="btn quick" type="button" data-cmd="help">Marauder Help</button>
@@ -562,6 +590,8 @@
     irSaveForm:  document.getElementById("irSaveForm"),
     irSaveName:  document.getElementById("irSaveName"),
     irSaveBtn:   document.getElementById("irSaveBtn"),
+    irTools:     document.getElementById("irTools"),
+    irToolsBtn:  document.getElementById("irToolsBtn"),
     libToggleBtn:document.getElementById("libToggleBtn"),
     libRefreshBtn: document.getElementById("libRefreshBtn"),
     library:     document.getElementById("library"),
@@ -825,6 +855,7 @@
     el.irSendBtn.disabled   = !isConnected;
     el.irSaveName.disabled  = !isConnected;
     el.irSaveBtn.disabled   = !isConnected;
+    el.irToolsBtn.disabled     = !isConnected;
     el.libToggleBtn.disabled   = !isConnected;
     el.libRefreshBtn.disabled  = !isConnected;
     el.connectBtn.textContent       = isConnected ? "Disconnect" : "Connect";
@@ -1016,10 +1047,24 @@
     el.irSaveName.value = "";
   });
 
-  el.libToggleBtn.addEventListener("click", () => {
-    const open = el.library.classList.toggle("open");
-    if (open && state.port) sendCommand("fs_list");
+  // Generic helper for chip <-> panel collapsibles. Keeps the chip's
+  // visual `active` state and ARIA attribute in sync with the panel.
+  function bindToggle(chip, panel, onOpen) {
+    chip.addEventListener("click", () => {
+      const open = panel.classList.toggle("open");
+      chip.classList.toggle("active", open);
+      chip.setAttribute("aria-expanded", String(open));
+      // Keep the caret (▾ / ▴) consistent with the open state.
+      chip.textContent = chip.textContent.replace(/[▾▴]\s*$/, "").trimEnd() +
+                         (open ? " ▴" : " ▾");
+      if (open && onOpen) onOpen();
+    });
+  }
+
+  bindToggle(el.libToggleBtn, el.library, () => {
+    if (state.port) sendCommand("fs_list");
   });
+  bindToggle(el.irToolsBtn, el.irTools);
 
   el.libRefreshBtn.addEventListener("click", () => {
     if (state.port) sendCommand("fs_list");
