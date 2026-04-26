@@ -160,10 +160,14 @@ firebase deploy --only hosting         # optional sanity-check deploy from your 
 - [x] Structured JSON framing on the serial channel (ArduinoJson v7, stack-scoped)
 - [x] LittleFS persistence (`ir_save`, `ir_play`, `fs_list`)
 - [x] Firebase Hosting + GitHub Actions CI/CD with PR previews
+- [x] Service Worker "Update available" floating toast with one-tap reload
+- [x] Channel tabs (Wi-Fi / BT / IR / NFC / ⋯) replacing the flat quick-bar
+- [x] NFC attack scaffolding — `nfc_nested` (stub), `nfc_dump` (real Sector 0)
+- [ ] **Hardware bring-up** — first physical flash + smoke test of every command (waiting on parts)
+- [ ] Real `nfc_nested` (crypto1 nonce collection + key recovery)
+- [ ] Full Mifare Classic dump (sectors 1..15 with a key bag)
 - [ ] `nfc_write` for Mifare Classic blocks
 - [ ] RF Sub-1GHz module (CC1101) on the reserved SPI pins
-- [ ] Service Worker "Update available — Reload" prompt promoted to a sticky banner
-- [ ] Export / import the LittleFS payload library to a PC over Web Serial
 - [ ] BadUSB / HID payload module
 
 ## Legal

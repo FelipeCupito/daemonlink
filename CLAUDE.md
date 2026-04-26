@@ -1,9 +1,13 @@
 # DaemonLink — Project Context for Claude
 
-> **Status**: Phases A → H complete. The backend, frontend, persistence layer
-> and CI/CD pipeline form a coherent, deployable system. This document is the
-> single source of truth for picking the project back up; read it before
-> proposing any change.
+> **Status**: Phases A → I complete (B.2 + Phase I scaffolding included).
+> The backend, frontend, persistence layer and CI/CD pipeline form a
+> coherent, deployable system. **Project is paused waiting on hardware
+> delivery (PN532 + IR LED + ESP32-S3 DevKitC-1)** — no real-device
+> validation has happened yet, everything was developed against the
+> simulator / desktop browser. This document is the single source of
+> truth for picking the project back up; read it before proposing any
+> change.
 
 ## 1. Mission
 DaemonLink is a tactical, multiprotocol, **strictly headless** hardware pentesting device — no screen, no buttons, no battery. The hardware acts as a silent daemon, controlled entirely from an Android phone over a wired USB-C link. The UI is a PWA (vanilla HTML/JS) that talks to the device through the browser's native **Web Serial API**.
@@ -57,7 +61,7 @@ DaemonLink/
 
 PlatformIO compiles `external/ESP32Marauder/esp32_marauder/` as the main sketch (`src_dir`); our `lib/DaemonLink/` is auto-linked. The patch script emits `esp32_marauder.ino.cpp` next to the .ino because PlatformIO does not auto-preprocess Arduino sketches when `src_dir` lives outside the project root.
 
-## 5. Current State — Phases A → H complete
+## 5. Current State — Phases A → I complete
 
 | Phase | Theme | Headline outcome |
 |---|---|---|
@@ -65,13 +69,17 @@ PlatformIO compiles `external/ESP32Marauder/esp32_marauder/` as the main sketch 
 | A.5 | Compile target (`MARAUDER_DAEMONLINK`) | firmware compiles green for headless ESP32-S3 |
 | B   | Single-file PWA | Web Serial console, channel-coloured terminal |
 | B.1 | PWA installable + offline | manifest + Service Worker (`web/sw.js`) |
+| B.2 | SW update toast | floating amber toast + `SKIP_WAITING` + single-reload guard |
 | C   | IR capture | non-blocking RX on RMT/DMA, `[IR] capture` events |
 | D   | IR replay | `ir_send` parser (protocol + raw), `replay:` payload |
 | E   | JSON framing | every module emits structured `{source, event, ...}` lines |
 | G   | Tactical persistence | LittleFS partition + `ir_save` / `ir_play` / `fs_list` |
 | H   | Hosting + CI/CD | Firebase Hosting at `daemonlink-541cd.web.app` + GitHub Actions |
+|     | UX iteration | channel-tabs (Wi-Fi default) + collapsible IR Tools / Library |
+| I   | NFC attack scaffolding | `nfc_nested` (stub) + `nfc_dump` (real Sector 0 with default key) |
 
 (Phase F — CI-only — was folded into Phase H. There is no ungrouped Phase F.)
+Phase I is intentionally scaffolding: `nfc_nested` runs the FreeRTOS task plumbing and emits the full event sequence, but the crypto1 recovery itself is a stub returning `status: "stub"`. `nfc_dump` performs a *real* PN532 authenticate + read of Sector 0 using the factory default key; sectors 1..15 are reported as pending until we ship a key bag.
 
 ### CLI surface
 All commands are absorbed by `DaemonLink_handleCli()` before Marauder's parser sees them. Marauder native commands (`scanall`, `sniffraw`, `attack -t deauth`, …) keep working untouched.
@@ -80,6 +88,8 @@ All commands are absorbed by `DaemonLink_handleCli()` before Marauder's parser s
 |---|---|---|
 | `dl_help` | List DaemonLink commands as a `{source: sys, event: help, commands: [...]}` event | shim |
 | `nfc_read` | Read Mifare UID via PN532, emit `{source: nfc, event: tag, ...}` | `DaemonLink_NFC` |
+| `nfc_nested` | Mifare Classic nested attack — scaffolding (emits `nested_start` / `nested_progress` ×4 / `nested_done {status: "stub"}`). Crypto1 not yet implemented | `DaemonLink_NFC` |
+| `nfc_dump` | Mifare Classic dump with default key. Today: real auth + read of Sector 0; emits `dump_start` → `sector` → `dump_done {status: "partial", read_sectors: 1, pending_sectors: 15}` | `DaemonLink_NFC` |
 | `ir_capture` | Capture & decode IR remote, emit `{source: ir, event: capture, ..., replay: ...}` | `DaemonLink_IR` |
 | `ir_send <PROTO> <bits> <hex>` | Transmit a known protocol (e.g. `ir_send NEC 32 0xff629d`) | `DaemonLink_IR` |
 | `ir_send raw <khz> <us,us,...>` | Transmit a raw timing payload (e.g. `ir_send raw 38 9000,4500,…`) | `DaemonLink_IR` |
@@ -200,16 +210,19 @@ When the user asks to continue, read the current project state (this file is aut
 Documented so future-Claude does not re-debate decisions or duplicate work.
 
 ### Hardware features
+- **Real `nfc_nested` crypto1** — replace the Phase I stub with actual nonce collection + key recovery. Adafruit_PN532's surface does not expose the necessary low-level command (`InCommunicateThru`); we will likely have to drop down to direct I²C frames or move to a more featureful PN532 driver. Output JSON shape is already settled (`nested_progress` phases, `nested_done.recovered`) so the frontend stays untouched.
+- **Full Mifare Classic dump** — extend Phase I to walk sectors 1..15 with a key bag (default + curated common keys), emit one `sector` event per sector, classify each block (data vs trailer). Phase I already emits the right outer event shape (`dump_start` → N×`sector` → `dump_done`).
 - **`nfc_write`** — extend `DaemonLink_NFC` with `nfc_write_block <sector> <key> <data>` for Mifare Classic. Authenticates with key A/B before writing. Reuses the existing FreeRTOS task pattern.
 - **RF Sub-1 GHz module (CC1101)** — replays for car key fobs, garage remotes, etc. SPI pins already reserved (`SCK=12, MISO=13, MOSI=11`). New `lib/DaemonLink/DaemonLink_RF.{h,cpp}` + commands `rf_capture`, `rf_send`, `rf_save`/`rf_play` (mirroring the IR command shape).
 - **NRF24L01 (2.4 GHz)** — for Mousejack-style HID injection. Same SPI bus as CC1101 with separate CS.
+- **Bluetooth tab placeholder** — the BT tab in the PWA (Phase H UX) currently only carries a `data-future`-style `Scan BT` chip that wires to a non-existing `scanbt` command. Marauder native BT verbs that *do* exist (`sniffbt -t flipper`, `blespam -t apple`, `spoofat`) should be surfaced inside the BT tab when this lands. New `--bt` colour variable already shipped.
 
 ### Firmware quality
 - **JSON Schema in this file** — formal `event` schemas under §6 so the PWA can typecheck at runtime in dev builds. Right now the contract is informal.
 - **Telemetry / heartbeat** — periodic `{source: sys, event: heartbeat, free_heap, uptime}` so the PWA can detect a hung device.
 
 ### Frontend / Ops
-- **Service Worker "Update available" prompt** — today the SW logs `update available — reload to apply` to the meta channel, but the user can miss it. Promote to a sticky banner inside the console with a one-tap "Reload" button so a fresh shell is always one gesture away.
-- **Library export/import to PC** — let the PWA download `/ir/<name>.json` (single file or zipped) for backup, and re-upload to a different DaemonLink. Web Serial protocol: a `fs_get <name>` command that streams the file body and a `fs_put <name> <base64>` command that writes it.
+- ~~**Service Worker "Update available" prompt**~~ — **done in Phase B.2** (floating amber toast `Actualización táctica disponible` + `SKIP_WAITING` postMessage + reload-loop guard).
+- ~~**Library export/import to PC**~~ — **explicitly deprioritised by user** (2026-04-25): "los payloads se pueden volver a capturar fácilmente en el campo". Reopen only on request.
 - **Saved-payload metadata** — friendly description + tags + date in each LittleFS file so the library panel can group/filter (e.g. "all TV remotes").
 - **Cancel-current-task** button — `dl_cancel` command + a kill-switch that `vTaskDelete()`'s the active worker (NFC waiting on a tag, IR capture timeout, etc.).
