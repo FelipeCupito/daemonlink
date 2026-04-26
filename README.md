@@ -115,6 +115,24 @@ Sample event from the Serial stream:
 {"source":"ir","event":"capture","protocol":"NEC","bits":32,"hex":"00FF629D","repeat":false,"replay":"NEC 32 0xff629d"}
 ```
 
+## Local development (PWA preview without deploying)
+
+To iterate on the frontend without waiting for the CI/CD pipeline:
+
+```bash
+./scripts/preview.sh        # serves web/ at http://localhost:8000
+```
+
+The script prints both the localhost URL (Chrome desktop) and your
+machine's LAN IP (so a phone on the same Wi-Fi can hit it for layout
+review). Stop with `Ctrl-C`.
+
+Web Serial only works on `localhost` or `https://`, so if you want to
+test the **full TX/RX flow against the ESP32 from your phone** before
+merging, push to a branch and let the CI's PR preview job hand you a
+throwaway Firebase URL — that one is real HTTPS. For everything that's
+just layout / CSS / JS logic, the local preview is the fastest loop.
+
 ## Deploying the PWA
 
 Pushes to `main` automatically run the GitHub Actions pipeline:
