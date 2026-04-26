@@ -27,6 +27,15 @@ if [[ ! -f "$WEB/index.html" ]]; then
   exit 1
 fi
 
+# Guard against a stale server on the same port — gives a clean message
+# instead of Python's wall of socket-bind traceback.
+if command -v lsof >/dev/null && lsof -ti ":${PORT}" >/dev/null 2>&1; then
+  PID="$(lsof -ti ":${PORT}")"
+  echo "preview: port ${PORT} is already in use by PID ${PID}." >&2
+  echo "preview: stop it with  kill -9 ${PID}   or pick another port: ./scripts/preview.sh 8080" >&2
+  exit 1
+fi
+
 # Best-effort LAN IP (works on macOS + most Linuxes; falls back gracefully).
 LAN_IP="$(ipconfig getifaddr en0 2>/dev/null \
        || ipconfig getifaddr en1 2>/dev/null \
